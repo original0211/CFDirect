@@ -211,7 +211,8 @@ export function randomCloudflareIps(count, rng = Math.random) {
   return out;
 }
 
-async function fetchText(fetchImpl, url, timeoutMs) {
+// export 供 country.mjs 复用同一受防护拉取通道（SSRF 口径与优选引擎一致）。
+export async function fetchText(fetchImpl, url, timeoutMs) {
   // P3-4：未注入 fetchImpl（生产路径）时走 preferred.mjs 的受防护拉取（公网校验 + 地址钉死），
   // 不再用全局 fetch 直拉任意 URL，避免 optimizerSourceURL 指向内网/云元数据构成 SSRF。
   // 代价：自建于内网的优选列表源同样被拒，与优选列表路径（fetchPreferredList）的既有口径一致。

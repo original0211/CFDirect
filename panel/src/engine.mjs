@@ -80,6 +80,9 @@ const supportsFreeCpu = Object.hasOwn(config, 'freeCpu');
 // 控制台据此禁用控件并提示升级（与 freeCpu 的支持探测同口径）。
 const supportsEg = Object.hasOwn(config, 'eg');
 const supportsCpuGuard = Object.hasOwn(config, 'cpuGuard');
+// CFDirect 国家节点：面板侧功能，但配置仍存内核 KV——旧内核字段表没有这三个键、
+// 保存会被整表拒绝，故与 eg/cpuGuard 同口径做支持探测（无键即禁用控件并提示升级）。
+const supportsCountryNodes = Object.hasOwn(config, 'countryNodes');
 const 配置默认值 = {
   freeCpu: 'no',
   eg: 'auto',
@@ -127,6 +130,9 @@ const 配置默认值 = {
   optimizerPort: '443',
   optimizerCount: '20',
   optimizerUseCidr: 'yes',
+  countryNodes: 'no',
+  countryRegions: 'HK,JP,US,SG,TW,KR,DE',
+  countryPerRegion: '8',
   subMode: 'worker',
   warpConf: '',
   warpEps: '',
@@ -152,18 +158,32 @@ function 归一配置开关(值, 默认启用 = false) {
   return 是否开启值(值, 默认启用) ? 'yes' : 'no';
 }
 
+// 国家节点地区清洗（与 country.mjs 的 sanitizeCountryRegions 同口径：
+// 只留数据源覆盖的 7 个代码、去重保序、清洗后为空回落默认全量）。
+const 国家地区合法代码 = ['HK', 'JP', 'US', 'SG', 'TW', 'KR', 'DE'];
+function 清洗国家地区(值) {
+  const 结果 = [];
+  for (const 片段 of String(值 ?? '').toUpperCase().split(/[^A-Z]+/)) {
+    if (片段 && 国家地区合法代码.includes(片段) && !结果.includes(片段)) 结果.push(片段);
+  }
+  return 结果.length ? 结果.join(',') : 国家地区合法代码.join(',');
+}
+
 function 整理有效配置(配置) {
   const 快照 = {
     ...配置默认值,
     ...配置
   };
-  ['freeCpu', 'ev', 'et', 'ex', 'ech', 'ena', 'epd', 'epi', 'egi', 'ipv4', 'ipv6', 'ispMobile', 'ispUnicom', 'ispTelecom', 'jk', 'optimizerAuto', 'optimizerCustomPref', 'optimizerUseCidr'].forEach(键 => {
+  ['freeCpu', 'ev', 'et', 'ex', 'ech', 'ena', 'epd', 'epi', 'egi', 'ipv4', 'ipv6', 'ispMobile', 'ispUnicom', 'ispTelecom', 'jk', 'optimizerAuto', 'optimizerCustomPref', 'optimizerUseCidr', 'countryNodes'].forEach(键 => {
     快照[键] = 归一配置开关(快照[键], 是否开启值(配置默认值[键]));
   });
   const 出口值 = String(快照.eg ?? '').trim().toLowerCase();
   快照.eg = ['auto', 'direct', 'proxyip'].includes(出口值) ? 出口值 : 'auto';
   const 守卫值 = String(快照.cpuGuard ?? '').trim().toLowerCase();
   快照.cpuGuard = ['off', 'monitor', 'protect'].includes(守卫值) ? 守卫值 : 'monitor';
+  快照.countryRegions = 清洗国家地区(快照.countryRegions);
+  const 每区数值 = parseInt(快照.countryPerRegion, 10);
+  快照.countryPerRegion = String(Number.isNaN(每区数值) ? 8 : Math.min(20, Math.max(1, 每区数值)));
   if (快照.ev === 'no' && 快照.et === 'no' && 快照.ex === 'no') {
     快照.ev = 'yes';
   }
@@ -231,6 +251,9 @@ function 获取环境配置快照(环境值 = {}) {
     optimizerPort: ['optimizerPort', 'OPTIMIZER_PORT'],
     optimizerCount: ['optimizerCount', 'OPTIMIZER_COUNT'],
     optimizerUseCidr: ['optimizerUseCidr', 'OPTIMIZER_USE_CIDR'],
+    countryNodes: ['countryNodes', 'COUNTRYNODES', 'COUNTRY_NODES'],
+    countryRegions: ['countryRegions', 'COUNTRYREGIONS', 'COUNTRY_REGIONS'],
+    countryPerRegion: ['countryPerRegion', 'COUNTRYPERREGION', 'COUNTRY_PER_REGION'],
     subMode: ['subMode', 'SUB_MODE'],
     warpConf: ['warpConf', 'WARP_CONF'],
     warpEps: ['warpEps', 'WARP_EPS'],
@@ -1753,6 +1776,12 @@ async function 处理订阅值(请求241, 用户240 = null) {
       cpuGuardOff: '关闭',
       cpuGuardMonitor: '监控（只计数，不断开）',
       cpuGuardProtect: '保护（超限切断）',
+      countryNodesTitle: '国家节点 (countryNodes)',
+      countryNodesEnable: '启用国家节点',
+      countryRegionsLabel: '国家/地区（逗号分隔）',
+      countryPerRegionLabel: '每地区节点数',
+      countryNodesHint: '开启后订阅将以国家节点为主（手填优选 IP 追加在后）；国家池拉取失败时自动回退原优选流程。地区池覆盖 5 个地区：🇭🇰 香港、🇯🇵 日本、🇺🇸 美国、🇸🇬 新加坡、🇹🇼 台湾；🇰🇷 韩国、🇩🇪 德国暂无可用数据源（微测池无地区标注），选了也不会出节点。',
+      countryNodesUnsupported: '当前内核不支持国家节点字段，请先更新配套内核。',
       latencyTestHint: '检测可用性；延迟按面板服务器位置测得。',
       optFilterTitle: '优选IP筛选设置',
       optIpVersion: 'IP版本选择',
@@ -1943,6 +1972,12 @@ en: {
       cpuGuardOff: 'Off',
       cpuGuardMonitor: 'Monitor (count only, never drop)',
       cpuGuardProtect: 'Protect (drop over limit)',
+      countryNodesTitle: 'Country nodes (countryNodes)',
+      countryNodesEnable: 'Enable country nodes',
+      countryRegionsLabel: 'Countries/regions (comma separated)',
+      countryPerRegionLabel: 'Nodes per region',
+      countryNodesHint: 'When enabled, subscriptions are led by country-grouped nodes (your manual preferred IPs are appended after them); if the country pool fails to load, the original preferred-IP flow is used automatically. Region lists cover 5 regions: 🇭🇰 Hong Kong, 🇯🇵 Japan, 🇺🇸 United States, 🇸🇬 Singapore, 🇹🇼 Taiwan. 🇰🇷 South Korea and 🇩🇪 Germany currently have no usable data source (the wetest pool carries no region labels), so selecting them yields no nodes.',
+      countryNodesUnsupported: 'The current core does not support the country-node fields. Please update the matching core first.',
       latencyTestHint: 'Checks availability; latency is measured from the panel server location.',
       optFilterTitle: 'Preferred IP Filter Settings',
       optIpVersion: 'IP Version',
@@ -2334,7 +2369,27 @@ en: {
                                 <input type="text" id="yxURL" placeholder="${语言码236 === 'en' ? 'Enter the preferred IP list source URL' : '输入优选IP列表来源URL'}" style="width: 100%; padding: 12px; background: rgba(0, 0, 0, 0.8); border: 2px solid #00f0ff; color: #00f0ff; font-family: 'Courier New', monospace; font-size: 14px;">
                                 <small style="color: #7aa9c4; font-size: 0.85rem;">${语言码236 === 'en' ? 'Custom preferred IP list source URL. Leave empty to use the default address.' : '自定义优选IP列表来源URL，留空则使用默认地址'}</small>
                         </div>
-                        
+                        <div style="margin-bottom: 15px;" id="countrySection">
+                                <label style="display: block; margin-bottom: 8px; color: #00f0ff; font-weight: bold; text-shadow: 0 0 3px #00f0ff;">${翻译值.countryNodesTitle}</label>
+                            <div style="padding: 15px; background: rgba(15, 3, 40, 0.6); border: 1px solid #00f0ff; border-radius: 5px;">
+                                <div style="margin-bottom: 10px;">
+                                    <label style="display: inline-flex; align-items: center; cursor: pointer; color: #00f0ff;">
+                                        <input type="checkbox" id="countryNodes" aria-describedby="countryNodesHint" ${supportsCountryNodes ? '' : 'disabled'} style="margin-right: 8px; width: 18px; height: 18px; cursor: pointer;">
+                                            <span style="font-size: 1.1rem;">${翻译值.countryNodesEnable}</span>
+                                    </label>
+                                </div>
+                                <div style="margin-bottom: 10px;">
+                                    <label style="display: block; margin-bottom: 8px; color: #00f0ff; font-size: 0.95rem;">${翻译值.countryRegionsLabel}</label>
+                                    <input type="text" id="countryRegions" aria-describedby="countryNodesHint" ${supportsCountryNodes ? '' : 'disabled'} placeholder="HK,JP,US,SG,TW,KR,DE" style="width: 100%; padding: 10px; background: rgba(0, 0, 0, 0.8); border: 1px solid #00f0ff; color: #00f0ff; font-family: 'Courier New', monospace; font-size: 13px;">
+                                </div>
+                                <div style="margin-bottom: 10px;">
+                                    <label style="display: block; margin-bottom: 8px; color: #00f0ff; font-size: 0.95rem;">${翻译值.countryPerRegionLabel}</label>
+                                    <input type="number" id="countryPerRegion" aria-describedby="countryNodesHint" ${supportsCountryNodes ? '' : 'disabled'} value="8" min="1" max="20" style="width: 100px; padding: 10px; background: rgba(0, 0, 0, 0.8); border: 1px solid #00f0ff; color: #00f0ff; font-family: 'Courier New', monospace; font-size: 13px;">
+                                </div>
+                                    <small id="countryNodesHint" style="color: #7aa9c4; font-size: 0.85rem; display: block; margin-top: 10px;">${supportsCountryNodes ? 翻译值.countryNodesHint : 翻译值.countryNodesUnsupported}</small>
+                            </div>
+                        </div>
+
                         <div style="margin-bottom: 20px; padding: 15px; background: rgba(20, 5, 50, 0.6); border: 2px solid #7aa9c4; border-radius: 8px;">
                             <h4 style="color: #00f0ff; margin: 0 0 15px 0; font-size: 1.1rem; text-shadow: 0 0 5px #00f0ff;"><svg class="cd-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4.8 13.6h5.7L9.3 22l8.2-11.6h-5.7L13 2z"/></svg>${翻译值.latencyTest}</h4><small style="color:#7aa9c4">${翻译值.latencyTestHint}</small>
                             <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; align-items: center;">
@@ -3303,6 +3358,9 @@ function 应用配置到界面(配置) {
   写入字段值('customIP', 配置.p);
   写入字段值('yx', (配置.yx || '').split(/[,\\r\\n]+/).map(值 => 值.trim()).filter(Boolean).join('\\n'));
   写入字段值('yxURL', 配置.yxURL);
+  写入开关值('countryNodes', 配置.countryNodes, false);
+  写入字段值('countryRegions', 配置.countryRegions);
+  写入字段值('countryPerRegion', 配置.countryPerRegion);
   写入字段值('socksConfig', 配置.s);
   写入字段值('customHomepage', 配置.homepage);
   写入字段值('apiEnabled', 配置.ae);
@@ -3331,6 +3389,9 @@ function 收集界面配置() {
     p: 读取字段值('customIP'),
     yx: 读取字段值('yx'),
     yxURL: 读取字段值('yxURL'),
+    countryNodes: 读取开关值('countryNodes', false),
+    countryRegions: 读取字段值('countryRegions'),
+    countryPerRegion: 读取字段值('countryPerRegion'),
     s: 读取字段值('socksConfig'),
     homepage: 读取字段值('customHomepage'),
     scu: 读取字段值('scu'),
@@ -3354,6 +3415,7 @@ function 收集界面配置() {
   if (document.getElementById('freeCpu')?.disabled) delete 配置.freeCpu;
   if (document.getElementById('eg')?.disabled) delete 配置.eg;
   if (document.getElementById('cpuGuard')?.disabled) delete 配置.cpuGuard;
+  if (document.getElementById('countryNodes')?.disabled) { delete 配置.countryNodes; delete 配置.countryRegions; delete 配置.countryPerRegion; }
   if (配置.ev === 'no' && 配置.et === 'no' && 配置.ex === 'no') {
     配置.ev = 'yes';
     写入开关值('ev', 'yes', true);
@@ -3497,6 +3559,7 @@ async function 重置全部配置() {
           ...(document.getElementById('freeCpu')?.disabled ? {} : { freeCpu: '' }),
           ...(document.getElementById('eg')?.disabled ? {} : { eg: '' }),
           ...(document.getElementById('cpuGuard')?.disabled ? {} : { cpuGuard: '' }),
+          ...(document.getElementById('countryNodes')?.disabled ? {} : { countryNodes: '', countryRegions: '', countryPerRegion: '' }),
           wk: '',
           d: '',
           p: '',

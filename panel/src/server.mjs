@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { createSubscriptionEngine } from './engine.mjs';
 import { resolveOptimizerYx } from './optimizer.mjs';
+import { resolveCountryYx } from './country.mjs';
 import { buildModeNodes, mergeModeSubscription, normalizeSubMode } from './modes.mjs';
 import { isPublicAddress, fetchPreferredList, normalizePreferredList, probePreferred } from './preferred.mjs';
 import { PANEL_VERSION, coreRelease } from './release.mjs';
@@ -414,10 +415,21 @@ export async function handlePanel(request) {
     }
     // CFusion P1：optimizerAuto 开启时，订阅生成改用优选引擎的池（替换 yx 输入）；
     // resolveOptimizerYx 全程 fail-open，返回 null 时保持原配置与原流程。页面渲染仍用原配置。
+    // CFDirect 国家节点：countryNodes 开启时优先级高于 optimizer——国家池非 null 时
+    // 以国家池为主、手填 yx 追加在后；国家池为 null（未开启/拉取全失败）时完全走原
+    // optimizer 流程。测试可经 globalThis.__CFDIRECT_COUNTRY_DEPS__ 注入假拉取
+    // （与 runtime.mjs 的 __CFUSION_OUTBOUND__ 注入先例同口径），生产恒为空对象。
     let effectiveConfig = config;
     if (subscription) {
-      const optimizerYx = await resolveOptimizerYx(config).catch(() => null);
-      if (optimizerYx) effectiveConfig = { ...config, yx: optimizerYx };
+      const countryDeps = (globalThis.__CFDIRECT_COUNTRY_DEPS__ && typeof globalThis.__CFDIRECT_COUNTRY_DEPS__ === 'object') ? globalThis.__CFDIRECT_COUNTRY_DEPS__ : {};
+      const countryYx = await resolveCountryYx(config, countryDeps).catch(() => null);
+      if (countryYx) {
+        const manualYx = String(config.yx || '').trim();
+        effectiveConfig = { ...config, yx: manualYx ? countryYx + '\n' + manualYx : countryYx };
+      } else {
+        const optimizerYx = await resolveOptimizerYx(config).catch(() => null);
+        if (optimizerYx) effectiveConfig = { ...config, yx: optimizerYx };
+      }
     }
     const engine = createSubscriptionEngine(effectiveConfig, uuid);
     // 节点生成用 Worker 主机，不能误用面板主机作为 SNI/Host。
