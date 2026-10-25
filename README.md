@@ -9,7 +9,7 @@
 - **CPU 守卫三档（`cpuGuard`）**：`off` / `monitor`（默认，只统计「若开启保护会被切断」的连接，**不断开**）/ `protect`（上游 Free CPU 保护行为）。免费版 10ms CPU 上限下，先看清再决定砍不砍。
 - **面板重新设计**：左侧导航 + 顶部状态条的运维控制台，第一屏是出口健康仪表盘；浅底墨字、单一强调橙、等宽数字；简体中文 + English。
 
-实施报告：[KERNEL_REPORT.md](./KERNEL_REPORT.md)、[PANEL_REPORT.md](./PANEL_REPORT.md)、[DEPLOY_REPORT.md](./DEPLOY_REPORT.md)。
+实施报告：[KERNEL_REPORT.md](./KERNEL_REPORT.md)、[PANEL_REPORT.md](./PANEL_REPORT.md)、[DEPLOY_REPORT.md](./DEPLOY_REPORT.md)、[PROBE_REPORT.md](./PROBE_REPORT.md)。
 
 ## 结构
 
