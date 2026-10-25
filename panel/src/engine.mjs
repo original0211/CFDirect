@@ -131,7 +131,7 @@ const 配置默认值 = {
   optimizerCount: '20',
   optimizerUseCidr: 'yes',
   countryNodes: 'no',
-  countryRegions: 'HK,JP,US,SG,TW,KR,DE',
+  countryRegions: 'HK,JP,KR,SG,TW,US,CA,DE,FR,GB,NL,SE,ES,IT,PL,CH,FI,CZ,AT,DK,IE,NO,BE,PT,AU',
   countryPerRegion: '8',
   subMode: 'worker',
   warpConf: '',
@@ -160,7 +160,7 @@ function 归一配置开关(值, 默认启用 = false) {
 
 // 国家节点地区清洗（与 country.mjs 的 sanitizeCountryRegions 同口径：
 // 只留数据源覆盖的 7 个代码、去重保序、清洗后为空回落默认全量）。
-const 国家地区合法代码 = ['HK', 'JP', 'US', 'SG', 'TW', 'KR', 'DE'];
+const 国家地区合法代码 = ['HK', 'JP', 'KR', 'SG', 'TW', 'US', 'CA', 'DE', 'FR', 'GB', 'NL', 'SE', 'ES', 'IT', 'PL', 'CH', 'FI', 'CZ', 'AT', 'DK', 'IE', 'NO', 'BE', 'PT', 'AU'];
 function 清洗国家地区(值) {
   const 结果 = [];
   for (const 片段 of String(值 ?? '').toUpperCase().split(/[^A-Z]+/)) {
@@ -1780,7 +1780,7 @@ async function 处理订阅值(请求241, 用户240 = null) {
       countryNodesEnable: '启用国家节点',
       countryRegionsLabel: '国家/地区（逗号分隔）',
       countryPerRegionLabel: '每地区节点数',
-      countryNodesHint: '开启后订阅将以国家节点为主（手填优选 IP 追加在后）；国家池拉取失败时自动回退原优选流程。地区池覆盖 5 个地区：🇭🇰 香港、🇯🇵 日本、🇺🇸 美国、🇸🇬 新加坡、🇹🇼 台湾；🇰🇷 韩国、🇩🇪 德国暂无可用数据源（微测池无地区标注），选了也不会出节点。',
+      countryNodesHint: '开启后订阅将以国家节点为主（手填优选 IP 追加在后）；国家池拉取失败时自动回退原优选流程。地区池覆盖 25 个国家/地区：亚洲（港日韩新台）、北美（美加）、欧洲 18 国（德法英荷瑞典西班牙意大利波兰瑞士芬兰捷克奥地利丹麦爱尔兰挪威比利时葡萄牙等）与澳大利亚。',
       countryNodesUnsupported: '当前内核不支持国家节点字段，请先更新配套内核。',
       latencyTestHint: '检测可用性；延迟按面板服务器位置测得。',
       optFilterTitle: '优选IP筛选设置',
@@ -1976,7 +1976,7 @@ en: {
       countryNodesEnable: 'Enable country nodes',
       countryRegionsLabel: 'Countries/regions (comma separated)',
       countryPerRegionLabel: 'Nodes per region',
-      countryNodesHint: 'When enabled, subscriptions are led by country-grouped nodes (your manual preferred IPs are appended after them); if the country pool fails to load, the original preferred-IP flow is used automatically. Region lists cover 5 regions: 🇭🇰 Hong Kong, 🇯🇵 Japan, 🇺🇸 United States, 🇸🇬 Singapore, 🇹🇼 Taiwan. 🇰🇷 South Korea and 🇩🇪 Germany currently have no usable data source (the wetest pool carries no region labels), so selecting them yields no nodes.',
+      countryNodesHint: 'When enabled, subscriptions are led by country-grouped nodes (your manual preferred IPs are appended after them); if the country pool fails to load, the original preferred-IP flow is used automatically. Region lists cover 25 countries/regions: Asia (HK/JP/KR/SG/TW), North America (US/CA), 18 European countries (DE/FR/GB/NL/SE/ES/IT/PL/CH/FI/CZ/AT/DK/IE/NO/BE/PT) and Australia.',
       countryNodesUnsupported: 'The current core does not support the country-node fields. Please update the matching core first.',
       latencyTestHint: 'Checks availability; latency is measured from the panel server location.',
       optFilterTitle: 'Preferred IP Filter Settings',
@@ -2380,7 +2380,7 @@ en: {
                                 </div>
                                 <div style="margin-bottom: 10px;">
                                     <label style="display: block; margin-bottom: 8px; color: #00f0ff; font-size: 0.95rem;">${翻译值.countryRegionsLabel}</label>
-                                    <input type="text" id="countryRegions" aria-describedby="countryNodesHint" ${supportsCountryNodes ? '' : 'disabled'} placeholder="HK,JP,US,SG,TW,KR,DE" style="width: 100%; padding: 10px; background: rgba(0, 0, 0, 0.8); border: 1px solid #00f0ff; color: #00f0ff; font-family: 'Courier New', monospace; font-size: 13px;">
+                                    <input type="text" id="countryRegions" aria-describedby="countryNodesHint" ${supportsCountryNodes ? '' : 'disabled'} placeholder="HK,JP,KR,SG,TW,US,CA,DE,FR,GB,NL,SE,ES,IT,PL,CH,FI,CZ,AT,DK,IE,NO,BE,PT,AU" style="width: 100%; padding: 10px; background: rgba(0, 0, 0, 0.8); border: 1px solid #00f0ff; color: #00f0ff; font-family: 'Courier New', monospace; font-size: 13px;">
                                 </div>
                                 <div style="margin-bottom: 10px;">
                                     <label style="display: block; margin-bottom: 8px; color: #00f0ff; font-size: 0.95rem;">${翻译值.countryPerRegionLabel}</label>

@@ -28,7 +28,27 @@ export const FALLBACK_LISTS = [
   { label: '日本', region: 'JP', url: 'https://bestcf.pages.dev/random-region/JP/100.txt', count: 12 },
   { label: '美国', region: 'US', url: 'https://bestcf.pages.dev/random-region/US/100.txt', count: 12 },
   { label: '新加坡', region: 'SG', url: 'https://bestcf.pages.dev/random-region/SG/100.txt', count: 12 },
-  { label: '台湾', region: 'TW', url: 'https://bestcf.pages.dev/random-region/TW/100.txt', count: 12 }
+  { label: '台湾', region: 'TW', url: 'https://bestcf.pages.dev/random-region/TW/100.txt', count: 12 },
+  { label: '韩国', region: 'KR', url: 'https://bestcf.pages.dev/random-region/KR/100.txt', count: 12 },
+  { label: '加拿大', region: 'CA', url: 'https://bestcf.pages.dev/random-region/CA/100.txt', count: 12 },
+  { label: '德国', region: 'DE', url: 'https://bestcf.pages.dev/random-region/DE/100.txt', count: 12 },
+  { label: '法国', region: 'FR', url: 'https://bestcf.pages.dev/random-region/FR/100.txt', count: 12 },
+  { label: '英国', region: 'GB', url: 'https://bestcf.pages.dev/random-region/GB/100.txt', count: 12 },
+  { label: '荷兰', region: 'NL', url: 'https://bestcf.pages.dev/random-region/NL/100.txt', count: 12 },
+  { label: '瑞典', region: 'SE', url: 'https://bestcf.pages.dev/random-region/SE/100.txt', count: 12 },
+  { label: '西班牙', region: 'ES', url: 'https://bestcf.pages.dev/random-region/ES/100.txt', count: 12 },
+  { label: '意大利', region: 'IT', url: 'https://bestcf.pages.dev/random-region/IT/100.txt', count: 12 },
+  { label: '波兰', region: 'PL', url: 'https://bestcf.pages.dev/random-region/PL/100.txt', count: 12 },
+  { label: '瑞士', region: 'CH', url: 'https://bestcf.pages.dev/random-region/CH/100.txt', count: 12 },
+  { label: '芬兰', region: 'FI', url: 'https://bestcf.pages.dev/random-region/FI/100.txt', count: 12 },
+  { label: '捷克', region: 'CZ', url: 'https://bestcf.pages.dev/random-region/CZ/100.txt', count: 12 },
+  { label: '奥地利', region: 'AT', url: 'https://bestcf.pages.dev/random-region/AT/100.txt', count: 12 },
+  { label: '丹麦', region: 'DK', url: 'https://bestcf.pages.dev/random-region/DK/100.txt', count: 12 },
+  { label: '爱尔兰', region: 'IE', url: 'https://bestcf.pages.dev/random-region/IE/100.txt', count: 12 },
+  { label: '挪威', region: 'NO', url: 'https://bestcf.pages.dev/random-region/NO/100.txt', count: 12 },
+  { label: '比利时', region: 'BE', url: 'https://bestcf.pages.dev/random-region/BE/100.txt', count: 12 },
+  { label: '葡萄牙', region: 'PT', url: 'https://bestcf.pages.dev/random-region/PT/100.txt', count: 12 },
+  { label: '澳大利亚', region: 'AU', url: 'https://bestcf.pages.dev/random-region/AU/100.txt', count: 12 }
 ];
 
 // —— 筛选别名（CFNext 常量 ue / fe / he / me） ——

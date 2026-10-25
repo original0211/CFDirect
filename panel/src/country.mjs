@@ -1,8 +1,7 @@
 // CFDirect 国家节点池（仿 CFNext 的按国家分组展现）：
-// 数据源 = bestcf 地区列表（FALLBACK_LISTS，覆盖 HK/JP/US/SG/TW）为主，
-// wetest_v4 全量池按 REGION_ALIASES 的备注名别名给同地区补量。实测口径（2026-10-26）：
-// wetest 的 HTML 页只能解析出少量无名条目、无地区标注，补量路基本为空——KR/DE 目前
-// 没有可用数据源，配了也不出节点，等有带地区标注的源再接。
+// 数据源 = bestcf 地区列表（FALLBACK_LISTS）为主：2026-10-26 逐区实测 bestcf
+// random-region 共 25 区可用（含欧洲 18 国），行内自带「德国 DE | FRA」式标注。
+// wetest_v4 补量路保留（其实测只能解析出少量无名条目、无地区标注，基本为空）。
 // 拉取通道与解析器全部复用 optimizer.mjs（fetchText / parseCandidateText / formatEntry），不另造轮子。
 // 全程 fail-open：单区失败跳过该区、wetest 失败只少补量、全部失败返回 null（订阅走原流程）。
 import {
@@ -10,16 +9,48 @@ import {
   fetchText, parseCandidateText, formatEntry, isCloudflareIp
 } from './optimizer.mjs';
 import { isIP } from 'node:net';
+import { fetchPublicTextFetch, resolveHostViaDoh } from './outbound-fetch.mjs';
+import { outboundMode } from './runtime.mjs';
 
-// 数据源覆盖的 7 个地区：代码 → 旗帜 + 中文名（节点命名与控制台文案共用口径）。
+// 共享 DoH 解析器（按 host 记忆）：fetch 运行时每次受防护拉取都要先做 A+AAAA 两次
+// DoH 子请求，25 个地区列表同属一个 host，若逐个解析，光解析就 50 个子请求、
+// 直接撞穿 Workers 免费版「每请求 50 子请求」上限（2026-10-26 线上实测：扩到
+// 25 区后国家池全灭、订阅 fail-open 回基线）。同一轮构建内同 host 只解析一次。
+export function createSharedResolver(baseResolve = resolveHostViaDoh) {
+  const cache = new Map();
+  return host => {
+    if (!cache.has(host)) cache.set(host, Promise.resolve().then(() => baseResolve(host)));
+    return cache.get(host);
+  };
+}
+
+// 数据源覆盖的 25 个地区：代码 → 旗帜 + 中文名（节点命名与控制台文案共用口径）。
 export const COUNTRY_REGIONS = {
   HK: { flag: '🇭🇰', name: '香港' },
   JP: { flag: '🇯🇵', name: '日本' },
-  US: { flag: '🇺🇸', name: '美国' },
+  KR: { flag: '🇰🇷', name: '韩国' },
   SG: { flag: '🇸🇬', name: '新加坡' },
   TW: { flag: '🇹🇼', name: '台湾' },
-  KR: { flag: '🇰🇷', name: '韩国' },
-  DE: { flag: '🇩🇪', name: '德国' }
+  US: { flag: '🇺🇸', name: '美国' },
+  CA: { flag: '🇨🇦', name: '加拿大' },
+  DE: { flag: '🇩🇪', name: '德国' },
+  FR: { flag: '🇫🇷', name: '法国' },
+  GB: { flag: '🇬🇧', name: '英国' },
+  NL: { flag: '🇳🇱', name: '荷兰' },
+  SE: { flag: '🇸🇪', name: '瑞典' },
+  ES: { flag: '🇪🇸', name: '西班牙' },
+  IT: { flag: '🇮🇹', name: '意大利' },
+  PL: { flag: '🇵🇱', name: '波兰' },
+  CH: { flag: '🇨🇭', name: '瑞士' },
+  FI: { flag: '🇫🇮', name: '芬兰' },
+  CZ: { flag: '🇨🇿', name: '捷克' },
+  AT: { flag: '🇦🇹', name: '奥地利' },
+  DK: { flag: '🇩🇰', name: '丹麦' },
+  IE: { flag: '🇮🇪', name: '爱尔兰' },
+  NO: { flag: '🇳🇴', name: '挪威' },
+  BE: { flag: '🇧🇪', name: '比利时' },
+  PT: { flag: '🇵🇹', name: '葡萄牙' },
+  AU: { flag: '🇦🇺', name: '澳大利亚' }
 };
 export const DEFAULT_COUNTRY_REGIONS = Object.keys(COUNTRY_REGIONS);
 export const DEFAULT_COUNTRY_PER_REGION = 8;
@@ -62,10 +93,17 @@ export async function buildCountryPool(config = {}, deps = {}) {
   if (deps.resetCache) { countryCache = { key: '', at: 0, value: null }; lastGoodCountry = null; }
   if (!deps.noCache && countryCache.value && countryCache.key === cacheKey && now - countryCache.at < 600000) return countryCache.value;
 
+  const sharedResolveHost = createSharedResolver();
+  const fetchListText = (url, timeoutMs) => {
+    if (fetchImpl) return fetchText(fetchImpl, url, timeoutMs);
+    if (outboundMode() === 'fetch') return fetchPublicTextFetch(url, { signal: AbortSignal.timeout(timeoutMs), timeout: timeoutMs, resolveHost: sharedResolveHost });
+    return fetchText(null, url, timeoutMs);
+  };
+
   // wetest 全量池只拉一次，跨地区共享；失败静默（补量路断了还有 bestcf 主路）。
   let wetestEntries = [];
   try {
-    const text = await fetchText(fetchImpl, OPTIMIZER_SOURCES.wetest_v4.url, 6000);
+    const text = await fetchListText(OPTIMIZER_SOURCES.wetest_v4.url, 6000);
     wetestEntries = parseCandidateText(text, 443);
   } catch { /* 补量源失败不影响主路 */ }
   const wetestFor = region => {
@@ -95,7 +133,7 @@ export async function buildCountryPool(config = {}, deps = {}) {
     const list = FALLBACK_LISTS.find(item => item.region === region);
     if (list) {
       try {
-        const text = await fetchText(fetchImpl, list.url, 8000);
+        const text = await fetchListText(list.url, 8000);
         for (const entry of parseCandidateText(text, 443)) add(entry.ip, entry.port);
       } catch { /* 单区失败跳过该区 */ }
     }

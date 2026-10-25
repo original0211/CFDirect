@@ -53,9 +53,9 @@ const downFetch = async () => { throw new Error('all down'); };
 
 test('sanitizeCountryRegions：清洗、去重保序、非法回落默认', () => {
   assert.deepEqual(sanitizeCountryRegions('jp, hk,XX,JP'), ['JP', 'HK']);
-  assert.deepEqual(sanitizeCountryRegions(''), ['HK', 'JP', 'US', 'SG', 'TW', 'KR', 'DE']);
-  assert.deepEqual(sanitizeCountryRegions('XX,YY'), ['HK', 'JP', 'US', 'SG', 'TW', 'KR', 'DE']);
-  assert.deepEqual(sanitizeCountryRegions(undefined), ['HK', 'JP', 'US', 'SG', 'TW', 'KR', 'DE']);
+  assert.deepEqual(sanitizeCountryRegions(''), ['HK', 'JP', 'KR', 'SG', 'TW', 'US', 'CA', 'DE', 'FR', 'GB', 'NL', 'SE', 'ES', 'IT', 'PL', 'CH', 'FI', 'CZ', 'AT', 'DK', 'IE', 'NO', 'BE', 'PT', 'AU']);
+  assert.deepEqual(sanitizeCountryRegions('XX,YY'), ['HK', 'JP', 'KR', 'SG', 'TW', 'US', 'CA', 'DE', 'FR', 'GB', 'NL', 'SE', 'ES', 'IT', 'PL', 'CH', 'FI', 'CZ', 'AT', 'DK', 'IE', 'NO', 'BE', 'PT', 'AU']);
+  assert.deepEqual(sanitizeCountryRegions(undefined), ['HK', 'JP', 'KR', 'SG', 'TW', 'US', 'CA', 'DE', 'FR', 'GB', 'NL', 'SE', 'ES', 'IT', 'PL', 'CH', 'FI', 'CZ', 'AT', 'DK', 'IE', 'NO', 'BE', 'PT', 'AU']);
   assert.deepEqual(sanitizeCountryRegions('de'), ['DE']);
 });
 
@@ -105,7 +105,7 @@ test('buildCountryPool：单区失败跳过、全失败返回 null', async () =>
   );
   assert.equal(partial, '104.16.14.1:443#🇸🇬 新加坡-01');
   const none = await buildCountryPool(
-    { countryRegions: 'HK,JP,US,SG,TW,KR,DE', countryPerRegion: '8' },
+    { countryRegions: 'HK,JP,KR,SG,TW,US,CA,DE,FR,GB,NL,SE,ES,IT,PL,CH,FI,CZ,AT,DK,IE,NO,BE,PT,AU', countryPerRegion: '8' },
     { fetchImpl: downFetch, noCache: true }
   );
   assert.equal(none, null);
@@ -130,7 +130,7 @@ test('resolveCountryYx：构建失败时回退上次成功池（lastGood）', as
 test('引擎默认值与国家字段清洗（整理有效配置口径）', () => {
   const defaults = createSubscriptionEngine({}, UUID).defaults;
   assert.equal(defaults.countryNodes, 'no');
-  assert.equal(defaults.countryRegions, 'HK,JP,US,SG,TW,KR,DE');
+  assert.equal(defaults.countryRegions, 'HK,JP,KR,SG,TW,US,CA,DE,FR,GB,NL,SE,ES,IT,PL,CH,FI,CZ,AT,DK,IE,NO,BE,PT,AU');
   assert.equal(defaults.countryPerRegion, '8');
 });
 
@@ -234,4 +234,16 @@ test('buildCountryPool：真实 bestcf 行格式（IP:端口#地区随机 | 日�
   assert.equal(lines.length, 3);
   assert.ok(lines[0].startsWith('104.16.30.1:443#🇯🇵 日本-01'), lines[0]);
   assert.ok(lines[1].startsWith('104.16.30.2:8443#🇯🇵 日本-02'), lines[1]);
+});
+
+test('createSharedResolver：同 host 只解析一次（防子请求上限打穿）', async () => {
+  const { createSharedResolver } = await import('../country.mjs');
+  let calls = 0;
+  const resolver = createSharedResolver(async host => { calls++; return ['93.184.216.34']; });
+  const [a, b] = await Promise.all([resolver('bestcf.pages.dev'), resolver('bestcf.pages.dev')]);
+  await resolver('bestcf.pages.dev');
+  await resolver('www.wetest.vip');
+  assert.deepEqual(a, ['93.184.216.34']);
+  assert.deepEqual(b, ['93.184.216.34']);
+  assert.equal(calls, 2, '两个 host 各解析一次，重复 host 命中缓存');
 });
