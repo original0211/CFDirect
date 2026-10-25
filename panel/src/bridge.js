@@ -59,7 +59,38 @@ const BT = {
     registryUnregistered: '（当前 Worker 未注册）',
     registrySwitch: '切换',
     registryRemember: '记住当前 Worker',
-    registryRemembered: '已记住'
+    registryRemembered: '已记住',
+    egressMode: '出口模式',
+    modeAuto: '自动',
+    modeDirect: '仅直连',
+    modeProxyip: '仅 ProxyIP',
+    dashEgressHealth: '出口健康',
+    dashDirectRate: '直连成功率',
+    dashFallbackRate: '降级率',
+    dashConnTotal: '连接总数',
+    dashConnDirect: '直连成功',
+    dashConnFallback: '降级成功',
+    dashConnFailed: '全部失败',
+    dashPool: 'ProxyIP 池',
+    dashPoolAvailable: '可用',
+    dashPoolTotal: '共',
+    dashPoolTripped: '已熔断',
+    dashDisconnects: '断连原因',
+    reason_client_gone: '客户端断开',
+    reason_upstream_error: '上游错误',
+    reason_budget_exceeded: '建连预算耗尽',
+    reason_cpu_guard_cut: 'CPU 守卫切断',
+    reason_normal_close: '正常关闭',
+    dashCpuGuard: 'CPU 守卫',
+    dashGuardMode: '档位',
+    dashGuardWouldCut: '监控下本可切断',
+    dashGuardCut: '已切断',
+    dashGuardHint: '若切换为 protect，这些连接会被切断。',
+    dashWindow: '统计窗口',
+    dashWindowSince: '自',
+    dashWindowNote: '当前内核实例窗口，非全量统计',
+    dashRefresh: '刷新',
+    statsUnavailable: '内核统计暂不可用'
   },
   en: {
     coreUpdateTitle: 'Core update required',
@@ -90,18 +121,49 @@ const BT = {
     registryUnregistered: '(Current Worker not registered)',
     registrySwitch: 'Switch',
     registryRemember: 'Remember current Worker',
-    registryRemembered: 'Remembered'
+    registryRemembered: 'Remembered',
+    egressMode: 'Egress mode',
+    modeAuto: 'Auto',
+    modeDirect: 'Direct only',
+    modeProxyip: 'ProxyIP only',
+    dashEgressHealth: 'Egress health',
+    dashDirectRate: 'Direct success rate',
+    dashFallbackRate: 'Fallback rate',
+    dashConnTotal: 'Total connections',
+    dashConnDirect: 'Direct',
+    dashConnFallback: 'Via fallback',
+    dashConnFailed: 'All failed',
+    dashPool: 'ProxyIP pool',
+    dashPoolAvailable: 'Available',
+    dashPoolTotal: 'of',
+    dashPoolTripped: 'Tripped',
+    dashDisconnects: 'Disconnect reasons',
+    reason_client_gone: 'Client gone',
+    reason_upstream_error: 'Upstream error',
+    reason_budget_exceeded: 'Connect budget exceeded',
+    reason_cpu_guard_cut: 'CPU guard cut',
+    reason_normal_close: 'Normal close',
+    dashCpuGuard: 'CPU guard',
+    dashGuardMode: 'Mode',
+    dashGuardWouldCut: 'Would have cut (monitor)',
+    dashGuardCut: 'Cut',
+    dashGuardHint: 'If switched to protect, these connections would be dropped.',
+    dashWindow: 'Stats window',
+    dashWindowSince: 'Since',
+    dashWindowNote: 'Current core isolate window only, not global totals',
+    dashRefresh: 'Refresh',
+    statsUnavailable: 'Core statistics are not available yet'
   }
 }[bridgeLang];
 // CFusion UI 第三轮：桥接条（版本提示 / 管理员 / 配置版本 / 注册表）统一挂到
 // 顶栏正下方的子栏容器里，与顶栏同宽、同发丝线语言，首屏只读出一个页眉系统。
 function mountSubBar(element) {
-  let stack = document.getElementById('sqSubBar');
+  let stack = document.getElementById('cdSubBar');
   if (!stack) {
     stack = document.createElement('div');
-    stack.id = 'sqSubBar';
-    stack.className = 'sq-subbar';
-    const topbar = document.querySelector('.sq-topbar');
+    stack.id = 'cdSubBar';
+    stack.className = 'cd-subbar';
+    const topbar = document.querySelector('.cd-topbar');
     if (topbar && topbar.parentNode) topbar.parentNode.insertBefore(stack, topbar.nextSibling);
     else document.body.prepend(stack);
   }
@@ -191,7 +253,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const bar = document.createElement('section');
   bar.id = 'adminSessionBar';
   bar.setAttribute('role', 'navigation');
-  bar.className = 'sq-bridge-bar sq-admin-bar';
+  bar.className = 'cd-bridge-bar cd-admin-bar';
   const label = document.createElement('strong');
   label.textContent = BT.admin;
   bar.append(label);
@@ -241,7 +303,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const bar = document.createElement('section');
       bar.id = 'cfusionMetaBar';
       bar.setAttribute('role', 'status');
-      bar.className = 'sq-bridge-bar sq-meta-bar';
+      bar.className = 'cd-bridge-bar cd-meta-bar';
       const text = document.createElement('span');
       text.textContent = BT.metaVersion + meta.ver + BT.metaLastChange + (meta.ts || '') + (Array.isArray(meta.changedKeys) && meta.changedKeys.length ? BT.metaChanged + meta.changedKeys.join(', ') : '');
       bar.append(text);
@@ -292,7 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const bar = document.createElement('section');
   bar.id = 'workerRegistry';
   bar.setAttribute('role', 'navigation');
-  bar.className = 'sq-bridge-bar sq-registry-bar';
+  bar.className = 'cd-bridge-bar cd-registry-bar';
   const label = document.createElement('strong');
   label.textContent = BT.registry;
   bar.append(label);
@@ -340,4 +402,137 @@ document.addEventListener('DOMContentLoaded', () => {
     bar.append(remember);
   }
   mountSubBar(bar);
+});
+
+// CFDirect：仪表盘。数据经面板 /api/core-stats 代理内核 /<uuid>/stats。
+// 内核字段按 DESIGN 第二节的契约消费，同时容忍常见别名；拉不到（旧内核、
+// 内核不可达）时只显示一行占位文案，不弹窗、不刷屏、不影响其它功能。
+document.addEventListener('DOMContentLoaded', () => {
+  const body = document.getElementById('cdDashBody');
+  if (!body || !window.CFNEW) return;
+  const num = value => { const n = Number(value); return Number.isFinite(n) && n > 0 ? n : 0; };
+  const pick = (obj, ...keys) => {
+    for (const key of keys) {
+      if (obj && typeof obj === 'object' && obj[key] !== undefined && obj[key] !== null) return obj[key];
+    }
+    return undefined;
+  };
+  const el = (tag, className, text) => {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+  const modeLabel = mode => mode === 'direct' ? BT.modeDirect : mode === 'proxyip' ? BT.modeProxyip : BT.modeAuto;
+  const statRow = (label, value) => {
+    const row = el('div', 'cd-dash-row');
+    row.append(el('span', 'cd-dash-label', label), el('span', 'cd-dash-num', value));
+    return row;
+  };
+  function showUnavailable() {
+    body.replaceChildren(el('p', 'cd-dash-note', BT.statsUnavailable));
+  }
+  function render(stats) {
+    body.replaceChildren();
+    const connections = pick(stats, 'connections') || {};
+    const direct = num(pick(connections, 'direct', 'direct_ok', 'directOk'));
+    const fallback = num(pick(connections, 'fallback', 'fallback_ok', 'fallbackOk', 'degraded'));
+    const failed = num(pick(connections, 'failed', 'all_failed', 'allFailed'));
+    const totalRaw = pick(connections, 'total');
+    const total = totalRaw !== undefined ? num(totalRaw) : direct + fallback + failed;
+    const settled = direct + fallback + failed;
+    const pct = (a, b) => b > 0 ? Math.round(a / b * 100) + '%' : '—';
+
+    const mode = String(pick(stats, 'egressMode', 'egress', 'eg') || (window.CFNEW.config || {}).eg || 'auto').toLowerCase();
+    const badge = document.getElementById('cdEgBadge');
+    if (badge) badge.textContent = BT.egressMode + ' · ' + mode.toUpperCase();
+
+    const grid = el('div', 'cd-dash-grid');
+    const health = el('div', 'cd-dash-block');
+    health.append(el('h3', 'cd-dash-block-title', BT.dashEgressHealth));
+    health.append(statRow(BT.dashDirectRate, pct(direct, settled)));
+    health.append(statRow(BT.dashFallbackRate, pct(fallback, settled)));
+    health.append(statRow(BT.dashConnTotal, String(total)));
+    health.append(statRow(BT.dashConnDirect, String(direct)));
+    health.append(statRow(BT.dashConnFallback, String(fallback)));
+    health.append(statRow(BT.dashConnFailed, String(failed)));
+    grid.append(health);
+
+    const poolRaw = pick(stats, 'proxyip', 'proxyIP', 'pool', 'proxyipPool') || {};
+    const pool = Array.isArray(poolRaw) ? {} : poolRaw;
+    const candidates = Array.isArray(poolRaw) ? poolRaw : (Array.isArray(poolRaw.candidates) ? poolRaw.candidates : []);
+    const isTripped = c => !!(c && (c.tripped || c.circuitOpen || c.disabled));
+    let poolTotal = pick(pool, 'total');
+    let poolAvailable = pick(pool, 'available', 'availableCount');
+    let poolTripped = pick(pool, 'tripped', 'trippedCount');
+    if (poolTotal === undefined && candidates.length) poolTotal = candidates.length;
+    if (poolTripped === undefined && candidates.length) poolTripped = candidates.filter(isTripped).length;
+    if (poolAvailable === undefined && candidates.length) poolAvailable = candidates.filter(c => c && !isTripped(c)).length;
+    const poolBlock = el('div', 'cd-dash-block');
+    poolBlock.append(el('h3', 'cd-dash-block-title', BT.dashPool));
+    poolBlock.append(statRow(BT.dashPoolAvailable, poolAvailable === undefined ? '—' : String(num(poolAvailable))));
+    poolBlock.append(statRow(BT.dashPoolTotal, poolTotal === undefined ? '—' : String(num(poolTotal))));
+    poolBlock.append(statRow(BT.dashPoolTripped, poolTripped === undefined ? '—' : String(num(poolTripped))));
+    poolBlock.append(statRow(BT.egressMode, modeLabel(mode)));
+    grid.append(poolBlock);
+
+    const guardRaw = pick(stats, 'cpuGuard');
+    const guard = (guardRaw && typeof guardRaw === 'object') ? guardRaw : (pick(stats, 'guard') || {});
+    const guardMode = String((typeof guardRaw === 'string' ? guardRaw : pick(guard, 'mode')) || pick(stats, 'cpuGuardMode') || (window.CFNEW.config || {}).cpuGuard || 'monitor').toLowerCase();
+    const wouldCut = num(pick(guard, 'wouldCut', 'cpuGuardWouldCut') ?? pick(stats, 'cpuGuardWouldCut'));
+    const cut = num(pick(guard, 'cut', 'cuts'));
+    const guardBlock = el('div', 'cd-dash-block');
+    guardBlock.append(el('h3', 'cd-dash-block-title', BT.dashCpuGuard));
+    guardBlock.append(statRow(BT.dashGuardMode, guardMode));
+    guardBlock.append(statRow(BT.dashGuardWouldCut, String(wouldCut)));
+    guardBlock.append(statRow(BT.dashGuardCut, String(cut)));
+    if (guardMode === 'monitor' && wouldCut > 0) guardBlock.append(el('p', 'cd-dash-note', BT.dashGuardHint));
+    grid.append(guardBlock);
+
+    const startedAt = pick(stats, 'startedAt', 'windowStart', 'isolateStartedAt') ?? pick(pick(stats, 'window') || {}, 'start', 'startedAt');
+    const windowBlock = el('div', 'cd-dash-block');
+    windowBlock.append(el('h3', 'cd-dash-block-title', BT.dashWindow));
+    const startedMs = typeof startedAt === 'string' ? Date.parse(startedAt) : Number(startedAt);
+    const since = Number.isFinite(startedMs) && startedMs > 0 ? new Date(startedMs).toLocaleString() : '—';
+    windowBlock.append(statRow(BT.dashWindowSince, since));
+    windowBlock.append(el('p', 'cd-dash-note', BT.dashWindowNote));
+    const refresh = el('button', 'cd-dash-refresh', BT.dashRefresh);
+    refresh.type = 'button';
+    refresh.addEventListener('click', () => { refresh.disabled = true; load().finally(() => { refresh.disabled = false; }); });
+    windowBlock.append(refresh);
+    grid.append(windowBlock);
+    body.append(grid);
+
+    const disconnects = pick(stats, 'disconnects', 'disconnectReasons') || {};
+    const reasonKeys = ['client_gone', 'upstream_error', 'budget_exceeded', 'cpu_guard_cut', 'normal_close'];
+    const reasonTotal = reasonKeys.reduce((sum, key) => sum + num(disconnects[key]), 0);
+    const reasonBlock = el('div', 'cd-dash-block cd-dash-wide');
+    reasonBlock.append(el('h3', 'cd-dash-block-title', BT.dashDisconnects));
+    for (const key of reasonKeys) {
+      const value = num(disconnects[key]);
+      const row = el('div', 'cd-dash-reason');
+      row.append(el('span', 'cd-dash-label', BT['reason_' + key] || key));
+      const barTrack = el('span', 'cd-dash-bar-track');
+      const bar = el('span', 'cd-dash-bar');
+      bar.style.width = reasonTotal > 0 ? Math.round(value / reasonTotal * 100) + '%' : '0%';
+      barTrack.append(bar);
+      row.append(barTrack, el('span', 'cd-dash-num', String(value)));
+      reasonBlock.append(row);
+    }
+    body.append(reasonBlock);
+  }
+  async function load() {
+    let stats = null;
+    try {
+      const response = await fetch('/api/core-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host: window.CFNEW.host, uuid: window.CFNEW.uuid })
+      });
+      if (response.ok) stats = await response.json();
+    } catch {}
+    if (!stats || typeof stats !== 'object' || stats.unavailable || stats.ok === false) { showUnavailable(); return; }
+    render(stats);
+  }
+  load();
 });
