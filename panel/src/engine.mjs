@@ -76,8 +76,14 @@ let 家宽自定义源网址 = '';
 let 键值配置 = {};
 
 const supportsFreeCpu = Object.hasOwn(config, 'freeCpu');
+// CFDirect：出口策略与 CPU 守卫为新内核字段；旧内核配置里没有这两个键，
+// 控制台据此禁用控件并提示升级（与 freeCpu 的支持探测同口径）。
+const supportsEg = Object.hasOwn(config, 'eg');
+const supportsCpuGuard = Object.hasOwn(config, 'cpuGuard');
 const 配置默认值 = {
   freeCpu: 'no',
+  eg: 'auto',
+  cpuGuard: 'monitor',
   wk: '',
   ev: 'yes',
   et: 'no',
@@ -154,6 +160,10 @@ function 整理有效配置(配置) {
   ['freeCpu', 'ev', 'et', 'ex', 'ech', 'ena', 'epd', 'epi', 'egi', 'ipv4', 'ipv6', 'ispMobile', 'ispUnicom', 'ispTelecom', 'jk', 'optimizerAuto', 'optimizerCustomPref', 'optimizerUseCidr'].forEach(键 => {
     快照[键] = 归一配置开关(快照[键], 是否开启值(配置默认值[键]));
   });
+  const 出口值 = String(快照.eg ?? '').trim().toLowerCase();
+  快照.eg = ['auto', 'direct', 'proxyip'].includes(出口值) ? 出口值 : 'auto';
+  const 守卫值 = String(快照.cpuGuard ?? '').trim().toLowerCase();
+  快照.cpuGuard = ['off', 'monitor', 'protect'].includes(守卫值) ? 守卫值 : 'monitor';
   if (快照.ev === 'no' && 快照.et === 'no' && 快照.ex === 'no') {
     快照.ev = 'yes';
   }
@@ -176,6 +186,8 @@ function 读取环境配置值(环境值, ...名称列表) {
 function 获取环境配置快照(环境值 = {}) {
   const 映射 = {
     freeCpu: ['freeCpu', 'FREE_CPU'],
+    eg: ['eg', 'EG'],
+    cpuGuard: ['cpuGuard', 'CPUGUARD', 'CPU_GUARD'],
     wk: ['wk', 'WK'],
     ev: ['ev', 'EV'],
     et: ['et', 'ET'],
@@ -1721,6 +1733,26 @@ async function 处理订阅值(请求241, 用户240 = null) {
       freeCpuLabel: 'Free CPU 保护',
       freeCpuHint: '单连接上下载合计最多 384 KiB 或 96 个数据块，超过就断开。客户端需自行重连，下载和视频可能中断。保存后对新连接生效，不能保证零超限。',
       freeCpuUnsupported: '当前内核不支持，请先更新配套内核。',
+      dashboard: '仪表盘',
+      navDashboard: '仪表盘',
+      navClients: '订阅与客户端',
+      navConfig: '配置管理',
+      navPreferred: '优选 IP',
+      navStatus: '系统状态',
+      egressMode: '出口模式',
+      statsLoading: '正在加载内核统计…',
+      egLabel: '出口策略 (eg)',
+      egHint: 'auto：每条连接先直连，失败自动降级到 ProxyIP 池；direct：仅直连，不降级；proxyip：仅走 ProxyIP。保存后对新连接生效。',
+      egUnsupported: '当前内核不支持，请先更新配套内核。',
+      egAuto: '自动（直连优先，失败降级 ProxyIP）',
+      egDirect: '仅直连',
+      egProxyip: '仅 ProxyIP',
+      cpuGuardLabel: 'CPU 守卫 (cpuGuard)',
+      cpuGuardHint: 'monitor（默认）：只统计超过 384 KiB 或 96 个数据块的连接，不断开；protect：超限即切断（与 Free CPU 保护同口径）；off：关闭统计与切断。保存后对新连接生效。',
+      cpuGuardUnsupported: '当前内核不支持，请先更新配套内核。',
+      cpuGuardOff: '关闭',
+      cpuGuardMonitor: '监控（只计数，不断开）',
+      cpuGuardProtect: '保护（超限切断）',
       latencyTestHint: '检测可用性；延迟按面板服务器位置测得。',
       optFilterTitle: '优选IP筛选设置',
       optIpVersion: 'IP版本选择',
@@ -1891,6 +1923,26 @@ en: {
       freeCpuLabel: 'Free CPU Protection',
       freeCpuHint: 'At most 384 KiB of combined upload and download, or 96 chunks, per connection; the connection is dropped when the limit is exceeded. Clients must reconnect on their own, and downloads and video may be interrupted. Takes effect for new connections after saving; zero overage is not guaranteed.',
       freeCpuUnsupported: 'The current core does not support this. Please update the matching core first.',
+      dashboard: 'Dashboard',
+      navDashboard: 'Dashboard',
+      navClients: 'Subscription & Clients',
+      navConfig: 'Configuration',
+      navPreferred: 'Preferred IPs',
+      navStatus: 'System Status',
+      egressMode: 'Egress mode',
+      statsLoading: 'Loading core statistics…',
+      egLabel: 'Egress policy (eg)',
+      egHint: 'auto: try a direct connection first and fall back to the ProxyIP pool on failure; direct: direct only, no fallback; proxyip: ProxyIP only. Takes effect for new connections after saving.',
+      egUnsupported: 'The current core does not support this. Please update the matching core first.',
+      egAuto: 'Auto (direct first, fall back to ProxyIP)',
+      egDirect: 'Direct only',
+      egProxyip: 'ProxyIP only',
+      cpuGuardLabel: 'CPU guard (cpuGuard)',
+      cpuGuardHint: 'monitor (default): only counts connections over 384 KiB or 96 chunks, never drops them; protect: drops over-limit connections (same thresholds as Free CPU Protection); off: no counting, no dropping. Takes effect for new connections after saving.',
+      cpuGuardUnsupported: 'The current core does not support this. Please update the matching core first.',
+      cpuGuardOff: 'Off',
+      cpuGuardMonitor: 'Monitor (count only, never drop)',
+      cpuGuardProtect: 'Protect (drop over limit)',
       latencyTestHint: 'Checks availability; latency is measured from the panel server location.',
       optFilterTitle: 'Preferred IP Filter Settings',
       optIpVersion: 'IP Version',
@@ -2060,9 +2112,9 @@ en: {
 
     </head>
     <body>
-        <header class="sq-topbar">
-          <div class="sq-topbar-in">
-            <span class="sq-brand">CFUSION</span>
+        <header class="cd-topbar">
+          <div class="cd-topbar-in">
+            <span class="cd-brand">CFDIRECT</span>
             <div class="cp-lang-wrapper">
                 <span class="cp-lang-tag">LANG_</span>
                 <select id="languageSelector" onchange="切换语言(this.value)">
@@ -2075,6 +2127,7 @@ en: {
                 <span class="cp-hud-line"><span class="cp-hud-label">NODE::</span> NIGHT_CITY</span>
                 <span class="cp-hud-line"><span class="cp-hud-label">LINK::</span> SECURE / ENC</span>
             </div>
+            <span class="cd-eg-badge" id="cdEgBadge" title="${翻译值.egLabel}">${翻译值.egressMode} · ${String(config.eg || 'auto').toUpperCase()}</span>
             <div id="cpActionBar" class="cp-action-bar" role="toolbar" aria-label="${翻译值.configManagement}">
                 <button type="button" id="cpBtnRefresh" class="cp-action-btn" data-tip="${翻译值.refreshConfig}" aria-label="${翻译值.refreshConfig}">
                     <span aria-hidden="true">↻</span>
@@ -2092,12 +2145,25 @@ en: {
             </div>
           </div>
         </header>
+        <nav class="cd-sidenav" aria-label="${翻译值.dashboard}">
+            <a class="cd-nav-link" href="#dashboardCard">${翻译值.navDashboard}</a>
+            <a class="cd-nav-link" href="#clientCard">${翻译值.navClients}</a>
+            <a class="cd-nav-link" href="#configCard">${翻译值.navConfig}</a>
+            <a class="cd-nav-link" href="#preferredSection">${翻译值.navPreferred}</a>
+            <a class="cd-nav-link" href="#statusCard">${翻译值.navStatus}</a>
+        </nav>
         <div class="container">
             <div class="header">
                     <h1 class="title">${翻译值.title}</h1>
                     <p class="subtitle">${翻译值.subtitle}</p>
             </div>
-            <div class="card">
+            <div class="card" id="dashboardCard">
+                    <h2 class="card-title">${翻译值.dashboard}</h2>
+                <div id="cdDashBody" class="cd-dash-body">
+                    <p class="cd-dash-note" id="cdDashNote">${翻译值.statsLoading}</p>
+                </div>
+            </div>
+            <div class="card" id="clientCard">
                     <h2 class="card-title">${翻译值.selectClient}</h2>
                 <div class="client-grid">
                     <button class="client-btn" onclick="生成客户端链接(atob('Y2xhc2g='), 'CLASH')">CLASH</button>
@@ -2112,13 +2178,13 @@ en: {
                     <button class="client-btn" onclick="生成客户端链接(atob('djJyYXk='), 'Shadowrocket')">Shadowrocket</button>
                     <button class="client-btn" id="jkClientBtn" style="${启用家宽链式 ? '' : 'display: none;'}" onclick="生成客户端链接('vg', '${翻译值.jkClient}')">${翻译值.jkClient}</button>
                 </div>
-                <div class="sq-subrow" id="clientSubRow" hidden>
-                    <span class="sq-subrow-name" id="clientSubRowName">${语言码236 === 'en' ? 'Subscription link' : '订阅链接'}</span>
+                <div class="cd-subrow" id="clientSubRow" hidden>
+                    <span class="cd-subrow-name" id="clientSubRowName">${语言码236 === 'en' ? 'Subscription link' : '订阅链接'}</span>
                     <div class="subscription-url" id="clientSubscriptionUrl"></div>
-                    <button type="button" class="sq-copy-btn" id="cpCopySubUrl">${语言码236 === 'en' ? 'Copy' : '复制'}</button>
+                    <button type="button" class="cd-copy-btn" id="cpCopySubUrl">${语言码236 === 'en' ? 'Copy' : '复制'}</button>
                 </div>
             </div>
-            <div class="card">
+            <div class="card" id="statusCard">
                     <h2 class="card-title">${翻译值.systemStatus}</h2>
                 <div id="systemStatus" style="margin: 20px 0; padding: 15px; background: rgba(8, 4, 28, 0.8); border: 2px solid #00f0ff; box-shadow: 0 0 20px rgba(0, 240, 255, 0.3), inset 0 0 15px rgba(0, 240, 255, 0.1); position: relative; overflow: hidden;">
                         <div id="systemStatusHead" data-done="[ ${翻译值.checkDone} ]" style="color: #00f0ff; margin-bottom: 15px; font-weight: bold; text-shadow: 0 0 5px #00f0ff;">[ ${翻译值.checking} ]</div>
@@ -2163,6 +2229,24 @@ en: {
                                 <span>${翻译值.freeCpuLabel}</span>
                             </label>
                             <small id="freeCpuHint">${supportsFreeCpu ? 翻译值.freeCpuHint : 翻译值.freeCpuUnsupported}</small>
+                        </div>
+                        <div class="cd-field-row">
+                                <label for="eg" style="display: block; margin-bottom: 8px; color: #00f0ff; font-weight: bold; text-shadow: 0 0 3px #00f0ff;">${翻译值.egLabel}</label>
+                            <select id="eg" aria-describedby="egHint" ${supportsEg ? '' : 'disabled'} style="width: 100%; padding: 12px; background: rgba(0, 0, 0, 0.8); border: 2px solid #00f0ff; color: #00f0ff; font-family: 'Courier New', monospace; font-size: 14px;">
+                                    <option value="auto">${翻译值.egAuto}</option>
+                                    <option value="direct">${翻译值.egDirect}</option>
+                                    <option value="proxyip">${翻译值.egProxyip}</option>
+                            </select>
+                            <small id="egHint">${supportsEg ? 翻译值.egHint : 翻译值.egUnsupported}</small>
+                        </div>
+                        <div class="cd-field-row">
+                                <label for="cpuGuard" style="display: block; margin-bottom: 8px; color: #00f0ff; font-weight: bold; text-shadow: 0 0 3px #00f0ff;">${翻译值.cpuGuardLabel}</label>
+                            <select id="cpuGuard" aria-describedby="cpuGuardHint" ${supportsCpuGuard ? '' : 'disabled'} style="width: 100%; padding: 12px; background: rgba(0, 0, 0, 0.8); border: 2px solid #00f0ff; color: #00f0ff; font-family: 'Courier New', monospace; font-size: 14px;">
+                                    <option value="off">${翻译值.cpuGuardOff}</option>
+                                    <option value="monitor">${翻译值.cpuGuardMonitor}</option>
+                                    <option value="protect">${翻译值.cpuGuardProtect}</option>
+                            </select>
+                            <small id="cpuGuardHint">${supportsCpuGuard ? 翻译值.cpuGuardHint : 翻译值.cpuGuardUnsupported}</small>
                         </div>
                         <div style="margin-bottom: 15px;">
                                 <label style="display: block; margin-bottom: 8px; color: #00f0ff; font-weight: bold; text-shadow: 0 0 3px #00f0ff;">${翻译值.protocolSelection}</label>
@@ -2240,7 +2324,7 @@ en: {
                                 <input type="text" id="customIP" placeholder="${语言码236 === 'en' ? 'e.g. 1.2.3.4:443' : '例如: 1.2.3.4:443'}" style="width: 100%; padding: 12px; background: rgba(0, 0, 0, 0.8); border: 2px solid #00f0ff; color: #00f0ff; font-family: 'Courier New', monospace; font-size: 14px;">
                                 <small style="color: #7aa9c4; font-size: 0.85rem;">${语言码236 === 'en' ? 'Custom ProxyIP address and port' : 解码64('6Ieq5a6a5LmJUHJveHlJUOWcsOWdgOWSjOerr+WPow==')}</small>
                         </div>
-                        <div style="margin-bottom: 15px;">
+                        <div style="margin-bottom: 15px;" id="preferredSection">
                                 <label style="display: block; margin-bottom: 8px; color: #00f0ff; font-weight: bold; text-shadow: 0 0 3px #00f0ff;">${翻译值.preferredIPs}</label>
                                 <textarea id="yx" rows="8" spellcheck="false" placeholder="104.16.1.1:443#日本节点&#10;[2606:4700::1111]:443#IPv6节点&#10;example.com:8443#域名节点" style="width: 100%; min-height: 180px; resize: vertical; line-height: 1.6; padding: 12px; background: rgba(0, 0, 0, 0.8); border: 2px solid #00f0ff; color: #00f0ff; font-family: 'Courier New', monospace; font-size: 14px;"></textarea>
                                 <small style="color: #7aa9c4; font-size: 0.85rem;">${语言码236 === 'en' ? 'Format: IP:port#node-name or IP:port (without #, a default name is used). One per line; comma separation is also supported.<span style="color: #ffb400;">IPs added via the API appear here automatically.</span>' : '格式: IP:端口#节点名称 或 IP:端口 (无#则使用默认名称)。每行一个，也支持英文逗号分隔。<span style="color: #ffb400;">API添加的IP会自动显示在这里。</span>'}</small>
@@ -2252,7 +2336,7 @@ en: {
                         </div>
                         
                         <div style="margin-bottom: 20px; padding: 15px; background: rgba(20, 5, 50, 0.6); border: 2px solid #7aa9c4; border-radius: 8px;">
-                            <h4 style="color: #00f0ff; margin: 0 0 15px 0; font-size: 1.1rem; text-shadow: 0 0 5px #00f0ff;"><svg class="sq-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4.8 13.6h5.7L9.3 22l8.2-11.6h-5.7L13 2z"/></svg>${翻译值.latencyTest}</h4><small style="color:#7aa9c4">${翻译值.latencyTestHint}</small>
+                            <h4 style="color: #00f0ff; margin: 0 0 15px 0; font-size: 1.1rem; text-shadow: 0 0 5px #00f0ff;"><svg class="cd-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4.8 13.6h5.7L9.3 22l8.2-11.6h-5.7L13 2z"/></svg>${翻译值.latencyTest}</h4><small style="color:#7aa9c4">${翻译值.latencyTestHint}</small>
                             <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; align-items: center;">
                                 <div style="min-width: 120px;">
                                     <label style="display: block; margin-bottom: 5px; color: #00f0ff; font-size: 0.9rem;">${翻译值.ipSource}</label>
@@ -2473,7 +2557,7 @@ en: {
             </div>
             
             </div>
-            <footer class="sq-footer">CFUSION · ${翻译值.title} · ${new Date().getFullYear()}</footer>
+            <footer class="cd-footer">CFDIRECT · ${翻译值.title} · ${new Date().getFullYear()}</footer>
         </div>
         <div id="cpToastStack" class="cp-toast-stack" aria-live="polite" aria-atomic="false"></div>
         <div id="cpActionStatus" class="cp-action-status" role="status" aria-live="polite"></div>
@@ -3191,6 +3275,8 @@ function 同步联动界面状态() {
 function 应用配置到界面(配置) {
   写入字段值('wkRegion', 配置.wk);
   写入开关值('freeCpu', 配置.freeCpu, false);
+  写入字段值('eg', 配置.eg);
+  写入字段值('cpuGuard', 配置.cpuGuard);
   写入开关值('ev', 配置.ev, true);
   写入开关值('et', 配置.et, false);
   写入开关值('ex', 配置.ex, false);
@@ -3231,6 +3317,8 @@ function 收集界面配置() {
   const 配置 = {
     wk: 读取字段值('wkRegion'),
     freeCpu: 读取开关值('freeCpu', false),
+    eg: 读取字段值('eg'),
+    cpuGuard: 读取字段值('cpuGuard'),
     ev: 读取开关值('ev', true),
     et: 读取开关值('et', false),
     ex: 读取开关值('ex', false),
@@ -3264,6 +3352,8 @@ function 收集界面配置() {
     ispTelecom: 读取开关值('ispTelecom', true)
   };
   if (document.getElementById('freeCpu')?.disabled) delete 配置.freeCpu;
+  if (document.getElementById('eg')?.disabled) delete 配置.eg;
+  if (document.getElementById('cpuGuard')?.disabled) delete 配置.cpuGuard;
   if (配置.ev === 'no' && 配置.et === 'no' && 配置.ex === 'no') {
     配置.ev = 'yes';
     写入开关值('ev', 'yes', true);
@@ -3405,6 +3495,8 @@ async function 重置全部配置() {
         },
         body: JSON.stringify({
           ...(document.getElementById('freeCpu')?.disabled ? {} : { freeCpu: '' }),
+          ...(document.getElementById('eg')?.disabled ? {} : { eg: '' }),
+          ...(document.getElementById('cpuGuard')?.disabled ? {} : { cpuGuard: '' }),
           wk: '',
           d: '',
           p: '',

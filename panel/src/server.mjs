@@ -212,7 +212,9 @@ function targetForAgent(agent = '') {
 // ② 每次成功保存写入版本 meta（ver/hash/changedKeys/ts，经内核 cfusionMeta 键随配置一同持久化）。
 // 关键集按 P3 任务书口径：模式/协议开关/出站/凭据。d（自定义入口）、freeCpu、customDNS
 // 曾考虑纳入，但与上游控制台既定流程（改入口是一级功能）冲突，本期不拦，列入报告存疑待定。
-const CRITICAL_CONFIG_KEYS = new Set(['subMode', 'ev', 'et', 'ex', 's', 'p', 'qj', 'warpConf', 'masqueConf']);
+// CFDirect：eg（出口策略）属于出站类关键键——静默变更会整体改变流量出口路径，
+// 与 p/qj 同级纳入关键集；cpuGuard 与 freeCpu 同口径，不纳入（见 freeCpu 的既有说明）。
+const CRITICAL_CONFIG_KEYS = new Set(['subMode', 'ev', 'et', 'ex', 's', 'p', 'qj', 'eg', 'warpConf', 'masqueConf']);
 const SECRET_CONFIG_KEYS = new Set(['warpConf', 'masqueConf', 's']);
 const META_CONFIG_KEY = 'cfusionMeta';
 
@@ -337,6 +339,30 @@ export async function handlePanel(request) {
   if (boundWorker) {
     const match = url.pathname.match(/^\/(.+)(\/api\/config|\/api\/preferred-ips|\/region|\/test-api)\/?$/);
     if (match) return handleWorkerApi(request, boundWorker, match[1], match[2]);
+  }
+  if (url.pathname === '/api/core-stats') {
+    // CFDirect：仪表盘数据通道。经与其它 Worker 接口相同的通道（requestWorkerApi，
+    // Cloudflare 下走 CORE 服务绑定）拉内核 /<uuid>/stats 并原样转发。
+    // 鉴权口径与 /api/preferred/* 一致：先成功加载一次该 Worker 的配置才放行
+    // （w 绑定校验、UUID/自定义路径校验都在 loadWorkerConfig 内完成）。
+    // fail-soft：内核不可达、旧内核无此端点、响应不是预期形状时，一律返回
+    // HTTP 200 + {ok:false, unavailable:true}，仪表盘显示占位，绝不报错刷屏。
+    if (request.method !== 'POST') return Response.json({ ok: false, unavailable: true, message: pickLang(lang, '只支持 POST', 'POST only') }, { status: 405 });
+    try {
+      const data = await request.json();
+      const workerBase = selectWorker(data.host);
+      const config = await loadWorkerConfig(workerBase, data.uuid, lang);
+      const result = await requestWorkerApi(workerBase, config.uuid, '/stats');
+      if (result.status !== 200) throw new Error('stats unavailable');
+      let stats;
+      try { stats = JSON.parse(result.body); } catch { throw new Error('stats unavailable'); }
+      const looksLikeStats = stats && typeof stats === 'object' && !Array.isArray(stats)
+        && ['connections', 'disconnects', 'cpuGuard', 'proxyip', 'startedAt', 'windowStart'].some(key => key in stats);
+      if (!looksLikeStats) throw new Error('stats unavailable');
+      return Response.json(stats);
+    } catch {
+      return Response.json({ ok: false, unavailable: true });
+    }
   }
   if (['/api/preferred/probe', '/api/preferred/list'].includes(url.pathname)) {
     if (request.method !== 'POST') return Response.json({ message: pickLang(lang, '只支持 POST', 'POST only') }, { status: 405 });
