@@ -63,6 +63,8 @@ const 远程配置网址 = 'https://raw.githubusercontent.com/byJoey/test/refs/h
 
 let 启用优选域名 = true;
 
+let 国家节点已开启 = false;
+
 let 启用优选地址 = true;
 
 let 启用仓库优选 = true;
@@ -1304,6 +1306,17 @@ async function 处理订阅请求(请求507, 用户506, 网址505 = null) {
       }));
       await 添加节点列表来源列表(自定义域名列表);
     }
+    // CFDirect 国家模式补回预设优选域名桶：国家池占住 yx 后预设会被整体跳过，
+    // 但这批域名是国内路由友好的 CF 入口（与 guojia 的 kejiland 优选域名同类），
+    // 日常稳定性靠它们；海外反代 IP 只适合选地区。仅补域名桶——远程 IP 桶来源
+    // 不稳定且与国家池重叠，不补。
+    if (国家节点已开启 && 启用优选域名) {
+      const 域名列表 = 直连域名列表.map(丁值491 => ({
+        ip: 丁值491.domain,
+        isp: 丁值491.name || 丁值491.domain
+      }));
+      await 添加节点列表来源列表(域名列表);
+    }
   } else {
     if (启用优选域名) {
       const 域名列表 = 直连域名列表.map(丁值491 => ({
@@ -1780,7 +1793,7 @@ async function 处理订阅值(请求241, 用户240 = null) {
       countryNodesEnable: '启用国家节点',
       countryRegionsLabel: '国家/地区（逗号分隔）',
       countryPerRegionLabel: '每地区节点数',
-      countryNodesHint: '开启后订阅将以国家节点为主（手填优选 IP 追加在后）；国家池拉取失败时自动回退原优选流程。地区池覆盖 25 个国家/地区：亚洲（港日韩新台）、北美（美加）、欧洲 18 国（德法英荷瑞典西班牙意大利波兰瑞士芬兰捷克奥地利丹麦爱尔兰挪威比利时葡萄牙等）与澳大利亚。',
+      countryNodesHint: '开启后订阅以国家节点为主（手填优选追加在后），同时保留预设优选域名作为日常稳定入口；国家池拉取失败时自动回退原优选流程。地区池覆盖 25 个国家/地区：亚洲（港日韩新台）、北美（美加）、欧洲 18 国（德法英荷瑞典西班牙意大利波兰瑞士芬兰捷克奥地利丹麦爱尔兰挪威比利时葡萄牙等）与澳大利亚。',
       countryNodesUnsupported: '当前内核不支持国家节点字段，请先更新配套内核。',
       latencyTestHint: '检测可用性；延迟按面板服务器位置测得。',
       optFilterTitle: '优选IP筛选设置',
@@ -1976,7 +1989,7 @@ en: {
       countryNodesEnable: 'Enable country nodes',
       countryRegionsLabel: 'Countries/regions (comma separated)',
       countryPerRegionLabel: 'Nodes per region',
-      countryNodesHint: 'When enabled, subscriptions are led by country-grouped nodes (your manual preferred IPs are appended after them); if the country pool fails to load, the original preferred-IP flow is used automatically. Region lists cover 25 countries/regions: Asia (HK/JP/KR/SG/TW), North America (US/CA), 18 European countries (DE/FR/GB/NL/SE/ES/IT/PL/CH/FI/CZ/AT/DK/IE/NO/BE/PT) and Australia.',
+      countryNodesHint: 'When enabled, subscriptions are led by country-grouped nodes (manual preferred entries appended after them) while keeping the preset preferred domains as the stable everyday entry; if the country pool fails to load, the original preferred-IP flow is used automatically. Region lists cover 25 countries/regions: Asia (HK/JP/KR/SG/TW), North America (US/CA), 18 European countries (DE/FR/GB/NL/SE/ES/IT/PL/CH/FI/CZ/AT/DK/IE/NO/BE/PT) and Australia.',
       countryNodesUnsupported: 'The current core does not support the country-node fields. Please update the matching core first.',
       latencyTestHint: 'Checks availability; latency is measured from the panel server location.',
       optFilterTitle: 'Preferred IP Filter Settings',
@@ -5113,6 +5126,7 @@ function 更新配置值() {
   传输路径 = 有效配置.tp || '';
   订阅转换接口 = 有效配置.scu || 配置默认值.scu;
   启用优选域名 = 有效配置.epd === 'yes';
+  国家节点已开启 = 有效配置.countryNodes === 'yes';
   启用优选地址 = 有效配置.epi === 'yes';
   启用仓库优选 = 有效配置.egi === 'yes';
   启用原生地址 = 有效配置.ena === 'yes';

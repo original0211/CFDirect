@@ -247,3 +247,21 @@ test('createSharedResolver：同 host 只解析一次（防子请求上限打穿
   assert.deepEqual(b, ['93.184.216.34']);
   assert.equal(calls, 2, '两个 host 各解析一次，重复 host 命中缓存');
 });
+
+test('订阅集成：国家模式下保留预设优选域名桶（日常稳定入口不被国家池顶掉）', async () => fixture(async ({ seed, sub }) => {
+  seed({ ...BASE_SEED, epd: 'yes', countryNodes: 'yes', countryRegions: 'JP', countryPerRegion: '2' });
+  globalThis.__CFDIRECT_COUNTRY_DEPS__ = {
+    fetchImpl: fakeFetch({
+      'random-region/JP': ['104.16.21.1', '104.16.21.2'].join('\n'),
+      'wetest.vip': new Error('wetest down')
+    }),
+    noCache: true, resetCache: true
+  };
+  try {
+    const response = await sub('clash');
+    assert.equal(response.status, 200);
+    const yaml = await response.text();
+    assert.ok(yaml.includes('🇯🇵_日本-01'), '国家节点在场');
+    assert.ok(yaml.includes('优选域名-'), '预设优选域名桶同时保留');
+  } finally { delete globalThis.__CFDIRECT_COUNTRY_DEPS__; }
+}));
