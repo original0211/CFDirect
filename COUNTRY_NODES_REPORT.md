@@ -81,3 +81,4 @@ yx 层节点名是精确的 `🇯🇵 日本-01`（单测在池文本层断言�
 - 待 Brody 提供 kejiland 节点 server 地址（或 guojia 订阅链接）后，把同一入口域名置顶加入 CFDirect 手填优选，做同入口对照；若同入口下仍断，再用内核 stats 查出口侧（eg/ProxyIP）归因。
 - 后续：Brody 提供 guojia 订阅链接，提取到 kejiland 节点入口为 saas.sin.fan（CF Anycast 162.159.130.234/162.159.135.234），已以手填 yx 加入 CFDirect 并线上确认在场（渲染名 优选域名-01，clash 与 base64 订阅均含此入口）。链接用完即弃、UUID 未入库。
 - rg 出口已上线（2026-10-26 晚）：内核支持路径 rg=国家码按连接选该国 ProxyIP 池优先出站（验证 66/66），面板 via-proxy 混合模式（153/153）——池内 10 国（港日韩新美德英荷瑞典芬兰）出 saas.sin.fan 入口 + rg 节点（国旗名保留），池外 15 区照旧经典反代节点；线上实例已开启，实测订阅 10 个 rg 节点 + 115 个经典国家节点 + 优选域名桶，stats 已含 rg.used/fallback 计数待真实流量验证。
+- 2026-10-26 21:40 出口复核：Brody 报 10 个 rg 节点出口全显示日本千叶。主线用手写 vless/WS 探针（scripts/probe-rg-exit.py）驱动线上内核实测：rg=DE→DE、US→US、GB→GB、NL→NL、JP→JP（CF trace 的 ip/loc），内核 rg 链路端到端无误；无 rg 时为直连 CF 出口。初步指向客户端侧未把 rg 带上（订阅未刷新/客户端改写 path/测的是其他节点类型），待 Brody 核对客户端内节点 path 字段。注：公共 ProxyIP 中继对非 CF 目标（checkip.amazonaws.com）握手异常，对 CF 目标正常——属中继的目标相关怪癖，非本次故障。
