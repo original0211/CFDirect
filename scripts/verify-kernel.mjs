@@ -45,6 +45,7 @@ console.log('A. /stats 路由与配置联动');
   ok('stats 默认 egress=auto', s0.egress === 'auto');
   ok('stats 默认 cpuGuard=monitor', s0.cpuGuard === 'monitor');
   ok('stats 计数全零且结构完整', s0.connections.total === 0 && s0.connections.direct_ok === 0
+    && s0.rg && s0.rg.used === 0 && s0.rg.fallback === 0
     && s0.disconnects.cpu_guard_cut === 0 && s0.guard.wouldCut === 0
     && Array.isArray(s0.proxyipPool) && typeof s0.startedAt === 'string' && s0.windowSec >= 0);
 
@@ -61,6 +62,13 @@ console.log('A. /stats 路由与配置联动');
     && (bad.status === 200 || bad.status === 400) && typeof cfg === 'object');
   ok('无 UUID 前缀 /stats → 404', (await get('/stats')).status === 404);
   ok('/region 既有路由完好', (await get('/' + uuid + '/region')).status === 200);
+  ok('保存 countryViaProxy=yes 成功（新字段已注册）', (await post({ countryViaProxy: 'yes' })).status === 200);
+  ok('保存 countryEntryDomain 成功（新字段已注册）', (await post({ countryEntryDomain: 'entry.example' })).status === 200);
+  const cfg2 = await (await get('/' + uuid + '/api/config')).json();
+  ok('配置读回 countryViaProxy/countryEntryDomain', cfg2.countryViaProxy === 'yes'
+    && cfg2.countryEntryDomain === 'entry.example'
+    && cfg2.countryNodes === 'no' && typeof cfg2.countryRegions === 'string');
+  ok('未注册键仍被整表拒绝 400', (await post({ zzzUnknownKey: '1' })).status === 400);
 }
 
 /* ================= 提取工具 ================= */
@@ -155,7 +163,8 @@ function makeScope2(Eg, behavior, candidates) {
     throw new Error('connect failed: ' + host);
   };
   const nt = async () => { throw new Error('nt unavailable in harness'); };
-  const CeL = () => candidates;
+  const celCalls = [];
+  const CeL = (region) => { celCalls.push(region); return typeof candidates === 'function' ? candidates(region) : candidates; };
   const ye = (e, sock) => ({ ye: true, sock });
   const he = ms => new Promise(r => setTimeout(r, ms));
   const et = async () => {};
@@ -168,7 +177,7 @@ function makeScope2(Eg, behavior, candidates) {
     ';let zst=null;const zzp={ms:4e3,n:4};const N="",J="JP",ee=!0,q=!1,Q=!1,j=!1,ne={},ue=1,Ze=2;' +
     'return {Hn,Ke,zzS};');
   const built = factory(Le, nt, CeL, ye, he, et, G, Eg, pt(0));
-  return { ...built, calls, gCalls };
+  return { ...built, calls, gCalls, celCalls };
 }
 
 const PX = [
@@ -257,6 +266,72 @@ console.log('B4. Ke（WS 建连）eg 分支');
   await sc.Ke(1, 't.example', 443, new Uint8Array(0), {}, null, freshState(), '', '', null, null, null);
   ok('Ke proxyip 无负缓存：第二次仍试直连', sc.calls.filter(h => h === 't.example').length === pb + 1
     && sc.zzS().fallback === 2);
+}
+
+console.log('B5. rg 按节点国家出口（ProxyIP 优先 + zzRg 校验）');
+{
+  const zz = new Function('let zzs=null;' + zzSrc + ';return {zzRg};')();
+  ok('zzRg 小写转大写', zz.zzRg('de') === 'DE');
+  ok('zzRg 合法两位代码透传', zz.zzRg('FR') === 'FR');
+  ok('zzRg 非法 XX9 → 忽略（空）', zz.zzRg('XX9') === '');
+  ok('zzRg 缺失/空/一位/三位 → 忽略（空）', zz.zzRg(null) === '' && zz.zzRg(undefined) === ''
+    && zz.zzRg('') === '' && zz.zzRg('D') === '' && zz.zzRg('DEU') === '');
+
+  const DEPX = [{ domain: 'px-de.example', port: 443, regionCode: 'DE' }];
+  const FRPX = [{ domain: 'px-fr.example', port: 443, regionCode: 'FR' }];
+  const byRegion = region => region === 'DE' ? DEPX : region === 'FR' ? FRPX : PX;
+  const keArgs = (host, gr) => [1, host, 443, new Uint8Array(0), {}, null, freshState(), '', '', null, null, null, gr];
+
+  // (a)+(c) Ke auto + rg=DE：候选来自 DE 池，且先于直连
+  let sc = makeScope2('auto', new Map([['t.example', 'ok'], ['px-de.example', 'ok'], ['px1.example', 'ok']]), byRegion);
+  await sc.Ke(...keArgs('t.example', 'DE'));
+  ok('Ke rg=DE 候选地区入参恒为 DE', sc.celCalls.length >= 1 && sc.celCalls.every(r => r === 'DE'));
+  ok('Ke rg=DE ProxyIP 优先于直连', sc.calls[0] === 'px-de.example' && !sc.calls.includes('t.example'));
+  ok('Ke rg=DE 计数 rgUsed=1/rgFallback=0/fallback=1', sc.zzS().rgUsed === 1
+    && sc.zzS().rgFallback === 0 && sc.zzS().fallback === 1);
+
+  // Ke rg 池全败 → fail-over 直连
+  sc = makeScope2('auto', new Map([['t.example', 'ok'], ['px-de.example', 'fail']]), byRegion);
+  await sc.Ke(...keArgs('t.example', 'DE'));
+  ok('Ke rg 池败走直连 rgFallback=1/direct=1', sc.zzS().direct === 1
+    && sc.zzS().rgFallback === 1 && sc.zzS().rgUsed === 1);
+
+  // Ke Eg=direct + rg：rg 指令优先于 direct 偏好，仍走池
+  sc = makeScope2('direct', new Map([['t.example', 'ok'], ['px-de.example', 'ok']]), byRegion);
+  await sc.Ke(...keArgs('t.example', 'DE'));
+  ok('Ke direct+rg 仍先试池且成功', sc.zzS().fallback === 1 && !sc.calls.includes('t.example'));
+  sc = makeScope2('direct', new Map([['t.example', 'ok'], ['px-de.example', 'fail']]), byRegion);
+  await sc.Ke(...keArgs('t.example', 'DE'));
+  ok('Ke direct+rg 池败后直连 fail-over', sc.zzS().direct === 1 && sc.zzS().rgFallback === 1);
+
+  // Ke 并发不串扰：同 scope 两个不同 rg 连接，各自地区/池
+  sc = makeScope2('auto', new Map([['px-de.example', 'ok'], ['px-fr.example', 'ok']]), byRegion);
+  await Promise.all([sc.Ke(...keArgs('a.example', 'DE')), sc.Ke(...keArgs('b.example', 'FR'))]);
+  ok('Ke 并发 rg 不串地区', sc.celCalls.includes('DE') && sc.celCalls.includes('FR')
+    && sc.zzS().rgUsed === 2 && sc.zzS().fallback === 2);
+
+  // (a)+(c) Hn auto + rg=DE
+  sc = makeScope2('auto', new Map([['t.example', 'ok'], ['px-de.example', 'ok']]), byRegion);
+  const hr = await sc.Hn({ hostname: 't.example', port: 443 }, null, 'DE');
+  ok('Hn rg=DE 候选来自 DE 池且池优先于直连', !!hr && hr.ye === true
+    && sc.celCalls[0] === 'DE' && sc.calls[0] === 'px-de.example' && !sc.calls.includes('t.example'));
+  ok('Hn rg 计数 rgUsed=1/rgFallback=0', sc.zzS().rgUsed === 1 && sc.zzS().rgFallback === 0
+    && sc.zzS().fallback === 1);
+
+  // Hn rg 池败 → 直连 fail-over
+  sc = makeScope2('auto', new Map([['t.example', 'ok'], ['px-de.example', 'fail']]), byRegion);
+  const hr2 = await sc.Hn({ hostname: 't.example', port: 443 }, null, 'DE');
+  ok('Hn rg 池败走直连 rgFallback=1', !!hr2 && sc.zzS().direct === 1 && sc.zzS().rgFallback === 1);
+
+  // Hn Eg=direct + rg：不抛 proxyip-disabled，走池
+  sc = makeScope2('direct', new Map([['t.example', 'fail'], ['px-de.example', 'ok']]), byRegion);
+  const hr3 = await sc.Hn({ hostname: 't.example', port: 443 }, null, 'DE');
+  ok('Hn direct+rg 走池成功（绕过 direct 禁令）', !!hr3 && sc.zzS().fallback === 1);
+
+  // Hn 无 rg 时 rg 计数保持零（行为不变旁证）
+  sc = makeScope2('auto', new Map([['t.example', 'fail'], ['px1.example', 'ok']]), PX);
+  await sc.Hn({ hostname: 't.example', port: 443 });
+  ok('Hn 无 rg 时 rgUsed/rgFallback 恒零', sc.zzS().rgUsed === 0 && sc.zzS().rgFallback === 0);
 }
 
 console.log(`\n全部通过：${passed} 项断言`);

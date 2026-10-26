@@ -85,6 +85,9 @@ const supportsCpuGuard = Object.hasOwn(config, 'cpuGuard');
 // CFDirect 国家节点：面板侧功能，但配置仍存内核 KV——旧内核字段表没有这三个键、
 // 保存会被整表拒绝，故与 eg/cpuGuard 同口径做支持探测（无键即禁用控件并提示升级）。
 const supportsCountryNodes = Object.hasOwn(config, 'countryNodes');
+// CFDirect 国家节点 via-proxy 模式：同 countryNodes 先例，内核 F 表没有这两键时
+// 控制台禁用控件并提示升级（面板保存会被旧内核整表拒绝）。
+const supportsCountryViaProxy = Object.hasOwn(config, 'countryViaProxy');
 const 配置默认值 = {
   freeCpu: 'no',
   eg: 'auto',
@@ -135,6 +138,8 @@ const 配置默认值 = {
   countryNodes: 'no',
   countryRegions: 'HK,JP,KR,SG,TW,US,CA,DE,FR,GB,NL,SE,ES,IT,PL,CH,FI,CZ,AT,DK,IE,NO,BE,PT,AU',
   countryPerRegion: '8',
+  countryViaProxy: 'no',
+  countryEntryDomain: 'saas.sin.fan',
   subMode: 'worker',
   warpConf: '',
   warpEps: '',
@@ -171,12 +176,19 @@ function 清洗国家地区(值) {
   return 结果.length ? 结果.join(',') : 国家地区合法代码.join(',');
 }
 
+// 国家节点统一入口域名清洗（与 country.mjs 的 sanitizeCountryEntryDomain 同口径）：
+// 只接受合法主机名（至少两段、全小写、无端口/路径/空格），非法回落 saas.sin.fan。
+function 清洗国家入口域名(值) {
+  const 域名 = String(值 ?? '').trim().toLowerCase().replace(/\.$/, '');
+  return /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(域名) ? 域名 : 'saas.sin.fan';
+}
+
 function 整理有效配置(配置) {
   const 快照 = {
     ...配置默认值,
     ...配置
   };
-  ['freeCpu', 'ev', 'et', 'ex', 'ech', 'ena', 'epd', 'epi', 'egi', 'ipv4', 'ipv6', 'ispMobile', 'ispUnicom', 'ispTelecom', 'jk', 'optimizerAuto', 'optimizerCustomPref', 'optimizerUseCidr', 'countryNodes'].forEach(键 => {
+  ['freeCpu', 'ev', 'et', 'ex', 'ech', 'ena', 'epd', 'epi', 'egi', 'ipv4', 'ipv6', 'ispMobile', 'ispUnicom', 'ispTelecom', 'jk', 'optimizerAuto', 'optimizerCustomPref', 'optimizerUseCidr', 'countryNodes', 'countryViaProxy'].forEach(键 => {
     快照[键] = 归一配置开关(快照[键], 是否开启值(配置默认值[键]));
   });
   const 出口值 = String(快照.eg ?? '').trim().toLowerCase();
@@ -186,6 +198,7 @@ function 整理有效配置(配置) {
   快照.countryRegions = 清洗国家地区(快照.countryRegions);
   const 每区数值 = parseInt(快照.countryPerRegion, 10);
   快照.countryPerRegion = String(Number.isNaN(每区数值) ? 8 : Math.min(20, Math.max(1, 每区数值)));
+  快照.countryEntryDomain = 清洗国家入口域名(快照.countryEntryDomain);
   if (快照.ev === 'no' && 快照.et === 'no' && 快照.ex === 'no') {
     快照.ev = 'yes';
   }
@@ -256,6 +269,8 @@ function 获取环境配置快照(环境值 = {}) {
     countryNodes: ['countryNodes', 'COUNTRYNODES', 'COUNTRY_NODES'],
     countryRegions: ['countryRegions', 'COUNTRYREGIONS', 'COUNTRY_REGIONS'],
     countryPerRegion: ['countryPerRegion', 'COUNTRYPERREGION', 'COUNTRY_PER_REGION'],
+    countryViaProxy: ['countryViaProxy', 'COUNTRYVIAPROXY', 'COUNTRY_VIA_PROXY'],
+    countryEntryDomain: ['countryEntryDomain', 'COUNTRYENTRYDOMAIN', 'COUNTRY_ENTRY_DOMAIN'],
     subMode: ['subMode', 'SUB_MODE'],
     warpConf: ['warpConf', 'WARP_CONF'],
     warpEps: ['warpEps', 'WARP_EPS'],
@@ -451,7 +466,13 @@ function 获取值节点别名基础(项目783) {
   if (主机782 && 主机782.includes(':') && /^[0-9a-fA-F:.]+$/.test(主机782)) {
     return 处理值节点别名部分(项目783?.isp || 项目783?.name || '', 'IPv6优选');
   }
-  if (主机782 && !是否有效地址(主机782)) return '优选域名';
+  if (主机782 && !是否有效地址(主机782)) {
+    // CFDirect：带 rg 标记的域名条目是「按国家走 ProxyIP 出口」的节点，国家
+    // 身份必须在名字里可见，不能淹没在统一的「优选域名-NN」里；无 rg 的域名
+    // 条目保持上游口径不变。
+    if (项目783?.rg) return 处理值节点别名部分(项目783?.isp || 项目783?.name || '', '优选域名');
+    return '优选域名';
+  }
   const 本地值781 = 处理值节点别名部分(项目783?.isp || 项目783?.name || '', 'IPv4优选');
   const 机房780 = 处理值节点别名部分(项目783?.colo || '', '');
   return 机房780 ? `${本地值781}-${机房780}` : 本地值781;
@@ -1302,7 +1323,9 @@ async function 处理订阅请求(请求507, 用户506, 网址505 = null) {
       const 自定义域名列表 = 自定义优选域名列表.map(丁值492 => ({
         ip: 丁值492.domain,
         port: 丁值492.port,
-        isp: 丁值492.name || 丁值492.domain
+        isp: 丁值492.name || 丁值492.domain,
+        // 地区标记透传：生成器据此给节点 path 追加 rg（IP 条目直传列表、无需映射）
+        ...(丁值492.rg ? { rg: 丁值492.rg } : {})
       }));
       await 添加节点列表来源列表(自定义域名列表);
     }
@@ -1470,6 +1493,8 @@ function 生成链接列表来源源(列表482, 用户481, 工作器域名480, �
   const 制作节点名称469 = 别名命名器477 || 创建值节点命名器(跳过编号478);
   for (const 项目468 of 列表482) {
     const 安全地址467 = 项目468.ip.includes(':') ? `[${项目468.ip}]` : 项目468.ip;
+    // 地区标记透传：带 rg 的条目在 WS path 查询串尾追加 rg（内核按国家选出口）
+    const 条目套接字路径 = 项目468.rg ? `${网页套接字路径471}&rg=${项目468.rg}` : 网页套接字路径471;
     let 值值生成466 = [];
     if (项目468.port) {
       const 端口465 = 项目468.port;
@@ -1520,7 +1545,7 @@ function 生成链接列表来源源(列表482, 用户481, 工作器域名480, �
           fp: 'chrome',
           type: 'ws',
           host: 工作器域名480,
-          path: 网页套接字路径471
+          path: 条目套接字路径
         });
         处理值应用层协议协商值(网页套接字参数459);
 
@@ -1537,7 +1562,7 @@ function 生成链接列表来源源(列表482, 用户481, 工作器域名480, �
           security: 'none',
           type: 'ws',
           host: 工作器域名480,
-          path: 网页套接字路径471
+          path: 条目套接字路径
         });
         链接列表472.push(`${协议470}://${用户481}@${安全地址467}:${端口462}?${网页套接字参数456.toString()}#${encodeURIComponent(网页套接字节点名称460)}`);
       }
@@ -1557,6 +1582,8 @@ async function 生成木马链接列表来源源(列表455, 用户454, 工作器
   const 制作节点名称444 = 别名命名器450 || 创建值节点命名器(跳过编号451);
   for (const 项目443 of 列表455) {
     const 安全地址442 = 项目443.ip.includes(':') ? `[${项目443.ip}]` : 项目443.ip;
+    // 地区标记透传：带 rg 的条目在 WS path 查询串尾追加 rg（内核按国家选出口）
+    const 条目套接字路径 = 项目443.rg ? `${网页套接字路径446}&rg=${项目443.rg}` : 网页套接字路径446;
     let 值值生成 = [];
     if (项目443.port) {
       const 端口441 = 项目443.port;
@@ -1604,7 +1631,7 @@ async function 生成木马链接列表来源源(列表455, 用户454, 工作器
           fp: 'chrome',
           type: 'ws',
           host: 工作器域名453,
-          path: 网页套接字路径446
+          path: 条目套接字路径
         });
         处理值应用层协议协商值(网页套接字参数436);
 
@@ -1620,7 +1647,7 @@ async function 生成木马链接列表来源源(列表455, 用户454, 工作器
           security: 'none',
           type: 'ws',
           host: 工作器域名453,
-          path: 网页套接字路径446
+          path: 条目套接字路径
         });
         链接列表447.push(`${atob('dHJvamFuOi8v')}${密码445}@${安全地址442}:${端口438}?${网页套接字参数.toString()}#${encodeURIComponent(网页套接字节点名称437)}`);
       }
@@ -1795,6 +1822,9 @@ async function 处理订阅值(请求241, 用户240 = null) {
       countryPerRegionLabel: '每地区节点数',
       countryNodesHint: '开启后订阅以国家节点为主（手填优选追加在后），同时保留预设优选域名作为日常稳定入口；国家池拉取失败时自动回退原优选流程。地区池覆盖 25 个国家/地区：亚洲（港日韩新台）、北美（美加）、欧洲 18 国（德法英荷瑞典西班牙意大利波兰瑞士芬兰捷克奥地利丹麦爱尔兰挪威比利时葡萄牙等）与澳大利亚。',
       countryNodesUnsupported: '当前内核不支持国家节点字段，请先更新配套内核。',
+      countryViaProxyEnable: '经 ProxyIP 出口（快入口模式）',
+      countryEntryDomainLabel: '统一入口域名',
+      countryViaProxyHint: '开启后国家节点分两路：内核 ProxyIP 池覆盖的 10 国（香港、日本、韩国、新加坡、美国、德国、英国、荷兰、瑞典、芬兰）入口统一用该优选域名（Anycast 就近接入，快而稳），国家由出口侧 ProxyIP 按节点地区实现，每区一条；其余国家内核池里没有对应出口，仍走海外反代 IP 池（按「每地区节点数」生成）。手填优选也可写「名称@地区码」（如 名称@DE），让单个节点走指定国家出口。',
       latencyTestHint: '检测可用性；延迟按面板服务器位置测得。',
       optFilterTitle: '优选IP筛选设置',
       optIpVersion: 'IP版本选择',
@@ -1991,6 +2021,9 @@ en: {
       countryPerRegionLabel: 'Nodes per region',
       countryNodesHint: 'When enabled, subscriptions are led by country-grouped nodes (manual preferred entries appended after them) while keeping the preset preferred domains as the stable everyday entry; if the country pool fails to load, the original preferred-IP flow is used automatically. Region lists cover 25 countries/regions: Asia (HK/JP/KR/SG/TW), North America (US/CA), 18 European countries (DE/FR/GB/NL/SE/ES/IT/PL/CH/FI/CZ/AT/DK/IE/NO/BE/PT) and Australia.',
       countryNodesUnsupported: 'The current core does not support the country-node fields. Please update the matching core first.',
+      countryViaProxyEnable: 'Exit via ProxyIP (fast entry mode)',
+      countryEntryDomainLabel: 'Shared entry domain',
+      countryViaProxyHint: 'When on, country nodes split two ways: the 10 countries covered by the core ProxyIP pool (HK, JP, KR, SG, US, DE, GB, NL, SE, FI) enter through this preferred domain (Anycast, nearest PoP, fast and stable) with the country provided by the egress ProxyIP of each region, one node per region; all other countries have no matching egress in the core pool and keep using the overseas reverse-proxy IP pool (Nodes per region applies). Manual preferred entries can also use "name@RG" (e.g. name@DE) to exit via a specific country.',
       latencyTestHint: 'Checks availability; latency is measured from the panel server location.',
       optFilterTitle: 'Preferred IP Filter Settings',
       optIpVersion: 'IP Version',
@@ -2399,6 +2432,17 @@ en: {
                                     <label style="display: block; margin-bottom: 8px; color: #00f0ff; font-size: 0.95rem;">${翻译值.countryPerRegionLabel}</label>
                                     <input type="number" id="countryPerRegion" aria-describedby="countryNodesHint" ${supportsCountryNodes ? '' : 'disabled'} value="8" min="1" max="20" style="width: 100px; padding: 10px; background: rgba(0, 0, 0, 0.8); border: 1px solid #00f0ff; color: #00f0ff; font-family: 'Courier New', monospace; font-size: 13px;">
                                 </div>
+                                <div style="margin-bottom: 10px;">
+                                    <label style="display: inline-flex; align-items: center; cursor: pointer; color: #00f0ff;">
+                                        <input type="checkbox" id="countryViaProxy" aria-describedby="countryViaProxyHint" ${supportsCountryViaProxy ? '' : 'disabled'} style="margin-right: 8px; width: 18px; height: 18px; cursor: pointer;">
+                                            <span style="font-size: 1.05rem;">${翻译值.countryViaProxyEnable}</span>
+                                    </label>
+                                </div>
+                                <div style="margin-bottom: 10px;">
+                                    <label style="display: block; margin-bottom: 8px; color: #00f0ff; font-size: 0.95rem;">${翻译值.countryEntryDomainLabel}</label>
+                                    <input type="text" id="countryEntryDomain" aria-describedby="countryViaProxyHint" ${supportsCountryViaProxy ? '' : 'disabled'} placeholder="saas.sin.fan" style="width: 100%; padding: 10px; background: rgba(0, 0, 0, 0.8); border: 1px solid #00f0ff; color: #00f0ff; font-family: 'Courier New', monospace; font-size: 13px;">
+                                </div>
+                                    <small id="countryViaProxyHint" style="color: #7aa9c4; font-size: 0.85rem; display: block; margin-top: 10px;">${supportsCountryViaProxy ? 翻译值.countryViaProxyHint : 翻译值.countryNodesUnsupported}</small>
                                     <small id="countryNodesHint" style="color: #7aa9c4; font-size: 0.85rem; display: block; margin-top: 10px;">${supportsCountryNodes ? 翻译值.countryNodesHint : 翻译值.countryNodesUnsupported}</small>
                             </div>
                         </div>
@@ -3374,6 +3418,8 @@ function 应用配置到界面(配置) {
   写入开关值('countryNodes', 配置.countryNodes, false);
   写入字段值('countryRegions', 配置.countryRegions);
   写入字段值('countryPerRegion', 配置.countryPerRegion);
+  写入开关值('countryViaProxy', 配置.countryViaProxy, false);
+  写入字段值('countryEntryDomain', 配置.countryEntryDomain);
   写入字段值('socksConfig', 配置.s);
   写入字段值('customHomepage', 配置.homepage);
   写入字段值('apiEnabled', 配置.ae);
@@ -3405,6 +3451,8 @@ function 收集界面配置() {
     countryNodes: 读取开关值('countryNodes', false),
     countryRegions: 读取字段值('countryRegions'),
     countryPerRegion: 读取字段值('countryPerRegion'),
+    countryViaProxy: 读取开关值('countryViaProxy', false),
+    countryEntryDomain: 读取字段值('countryEntryDomain'),
     s: 读取字段值('socksConfig'),
     homepage: 读取字段值('customHomepage'),
     scu: 读取字段值('scu'),
@@ -3429,6 +3477,7 @@ function 收集界面配置() {
   if (document.getElementById('eg')?.disabled) delete 配置.eg;
   if (document.getElementById('cpuGuard')?.disabled) delete 配置.cpuGuard;
   if (document.getElementById('countryNodes')?.disabled) { delete 配置.countryNodes; delete 配置.countryRegions; delete 配置.countryPerRegion; }
+  if (document.getElementById('countryViaProxy')?.disabled) { delete 配置.countryViaProxy; delete 配置.countryEntryDomain; }
   if (配置.ev === 'no' && 配置.et === 'no' && 配置.ex === 'no') {
     配置.ev = 'yes';
     写入开关值('ev', 'yes', true);
@@ -3573,6 +3622,7 @@ async function 重置全部配置() {
           ...(document.getElementById('eg')?.disabled ? {} : { eg: '' }),
           ...(document.getElementById('cpuGuard')?.disabled ? {} : { cpuGuard: '' }),
           ...(document.getElementById('countryNodes')?.disabled ? {} : { countryNodes: '', countryRegions: '', countryPerRegion: '' }),
+          ...(document.getElementById('countryViaProxy')?.disabled ? {} : { countryViaProxy: '', countryEntryDomain: '' }),
           wk: '',
           d: '',
           p: '',
@@ -5034,7 +5084,9 @@ function 生成扩展超文本链接列表来源源(列表76, 用户75, 工作�
       fp: 'chrome',
       type: 'xhttp',
       host: 工作器域名74,
-      path: `/${节点路径}`,
+      // 地区标记透传：XHTTP path 本无查询串，rg 以 ?rg= 形式挂上（与 WS 的
+      // /?ed=2048&rg= 同为 query 参数，内核按国家选出口）；无 rg 时逐字不变。
+      path: 项目68.rg ? `/${节点路径}?rg=${项目68.rg}` : `/${节点路径}`,
       mode: 'stream-one'
     });
     const { 头: 叉填充头65, 键: 叉填充键65 } = 获取叉HTTP填充标识(用户75);
@@ -5180,18 +5232,32 @@ function 更新自定义优选来源值() {
         if (!节点名称26) {
           节点名称26 = '自定义优选-' + 地址23 + (端口22 ? ':' + 端口22 : '');
         }
+        // CFDirect 地区标记：名称后缀「@RG」（如「🇩🇪 德国@DE」）解析为条目 rg
+        // 字段、显示名去掉后缀；生成器据此给节点 WS/XHTTP path 追加 rg 查询参数，
+        // 内核按节点国家选 ProxyIP 出口。后缀不是「两位大写字母」的名称（如
+        // 「加入频道@kejiland00-443-WS-TLS」）不匹配，行为与此前完全一致。
+        let 地区代码值 = '';
+        const 地区标记匹配 = 节点名称26.match(/^(.+?)@([A-Z]{2})$/);
+        if (地区标记匹配) {
+          节点名称26 = 地区标记匹配[1];
+          地区代码值 = 地区标记匹配[2];
+        }
         if (是否有效地址(地址23)) {
-          自定义优选地址列表.push({
+          const 地址条目 = {
             ip: 地址23,
             port: 端口22,
             isp: 节点名称26
-          });
+          };
+          if (地区代码值) 地址条目.rg = 地区代码值;
+          自定义优选地址列表.push(地址条目);
         } else {
-          自定义优选域名列表.push({
+          const 域名条目 = {
             domain: 地址23,
             port: 端口22,
             name: 节点名称26
-          });
+          };
+          if (地区代码值) 域名条目.rg = 地区代码值;
+          自定义优选域名列表.push(域名条目);
         }
       });
     } catch (错误) {

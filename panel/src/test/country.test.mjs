@@ -8,7 +8,8 @@ import test from 'node:test';
 
 import {
   COUNTRY_REGIONS, buildCountryPool, resolveCountryYx,
-  sanitizeCountryRegions, clampCountryPerRegion, countryNodeName
+  sanitizeCountryRegions, clampCountryPerRegion, countryNodeName,
+  sanitizeCountryEntryDomain
 } from '../country.mjs';
 import { createSubscriptionEngine } from '../engine.mjs';
 
@@ -247,6 +248,204 @@ test('createSharedResolver：同 host 只解析一次（防子请求上限打穿
   assert.deepEqual(b, ['93.184.216.34']);
   assert.equal(calls, 2, '两个 host 各解析一次，重复 host 命中缓存');
 });
+
+test('sanitizeCountryEntryDomain：合法主机名保留、非法回落默认', () => {
+  assert.equal(sanitizeCountryEntryDomain('saas.sin.fan'), 'saas.sin.fan');
+  assert.equal(sanitizeCountryEntryDomain('EXAMPLE.com.'), 'example.com');
+  assert.equal(sanitizeCountryEntryDomain(' a.b-c.example-domain.org '), 'a.b-c.example-domain.org');
+  assert.equal(sanitizeCountryEntryDomain('https://bad.example/x'), 'saas.sin.fan');
+  assert.equal(sanitizeCountryEntryDomain('bad_domain'), 'saas.sin.fan');
+  assert.equal(sanitizeCountryEntryDomain('example.com:443'), 'saas.sin.fan');
+  assert.equal(sanitizeCountryEntryDomain(''), 'saas.sin.fan');
+  assert.equal(sanitizeCountryEntryDomain(undefined), 'saas.sin.fan');
+});
+
+test('buildCountryPool：via-proxy 模式不拉源、每区一条 @RG 行、per 不生效', async () => {
+  let calls = 0;
+  const counting = async () => { calls++; throw new Error('via-proxy 不应拉取任何源'); };
+  const yx = await buildCountryPool(
+    { countryRegions: 'DE,JP', countryViaProxy: 'yes', countryEntryDomain: 'saas.sin.fan', countryPerRegion: '20' },
+    { fetchImpl: counting, noCache: true, resetCache: true }
+  );
+  assert.equal(calls, 0, 'via-proxy 模式不得发起拉取');
+  assert.equal(yx, 'saas.sin.fan:443#🇩🇪 德国@DE\nsaas.sin.fan:443#🇯🇵 日本@JP');
+  const custom = await buildCountryPool(
+    { countryRegions: 'DE', countryViaProxy: 'yes', countryEntryDomain: 'Example.COM.' },
+    { fetchImpl: counting, noCache: true }
+  );
+  assert.equal(custom, 'example.com:443#🇩🇪 德国@DE');
+  const fallback = await buildCountryPool(
+    { countryRegions: 'DE', countryViaProxy: 'yes', countryEntryDomain: 'not a domain' },
+    { fetchImpl: counting, noCache: true }
+  );
+  assert.equal(fallback, 'saas.sin.fan:443#🇩🇪 德国@DE');
+});
+
+test('resolveCountryYx：countryViaProxy 开但 countryNodes 关 → null；双开走 via-proxy', async () => {
+  const off = await resolveCountryYx(
+    { countryNodes: 'no', countryViaProxy: 'yes', countryRegions: 'DE' },
+    { fetchImpl: downFetch, noCache: true }
+  );
+  assert.equal(off, null);
+  const on = await resolveCountryYx(
+    { countryNodes: 'yes', countryViaProxy: 'yes', countryRegions: 'DE', countryEntryDomain: 'saas.sin.fan' },
+    { fetchImpl: downFetch, noCache: true }
+  );
+  assert.equal(on, 'saas.sin.fan:443#🇩🇪 德国@DE');
+});
+
+test('引擎默认值：countryViaProxy/countryEntryDomain', () => {
+  const defaults = createSubscriptionEngine({}, UUID).defaults;
+  assert.equal(defaults.countryViaProxy, 'no');
+  assert.equal(defaults.countryEntryDomain, 'saas.sin.fan');
+});
+
+test('yx 地区标记 @RG：三协议 path 透传 rg、显示名去后缀、无标记与频道名不变', async () => {
+  const yx = [
+    '104.16.1.1:443#德国出口@DE',
+    '104.16.1.2:443#普通节点',
+    '104.16.1.3:443#加入频道@kejiland00-443-WS-TLS',
+    'saas.sin.fan:443#域名节点@JP',
+    'example.org:443#无标记域名'
+  ].join('\n');
+  const engine = createSubscriptionEngine(
+    { ae: 'yes', epd: 'yes', epi: 'yes', egi: 'no', ena: 'no', ev: 'yes', et: 'yes', ex: 'yes', yx },
+    UUID
+  );
+  const response = await engine.subscribe(new Request('https://worker.example/' + UUID + '/sub?target=base64'));
+  assert.equal(response.status, 200);
+  const links = Buffer.from(await response.text(), 'base64').toString('utf8').trim().split('\n').map(l => new URL(l));
+  const pick = host => links.filter(l => l.hostname === host);
+  const nameOf = l => decodeURIComponent(l.hash.slice(1));
+  // IP 条目带标记：vless/trojan 的 WS path 尾追加 &rg=DE，xhttp 以 ?rg=DE 挂查询
+  const de = pick('104.16.1.1');
+  assert.equal(de.length, 3, 'DE 条目应生成 vless/trojan/xhttp 三条');
+  for (const l of de) {
+    const p = l.searchParams.get('path');
+    if (l.searchParams.get('type') === 'xhttp') assert.equal(p, '/351c9981?rg=DE');
+    else assert.equal(p, '/?ed=2048&rg=DE');
+    assert.ok(nameOf(l).startsWith('德国出口'), '显示名应去掉 @DE 后缀：' + nameOf(l));
+    assert.ok(!nameOf(l).includes('@'), '显示名不得残留 @');
+  }
+  // 无标记条目：path 逐字不变、无 rg
+  const plain = pick('104.16.1.2');
+  assert.equal(plain.length, 3);
+  for (const l of plain) {
+    const p = l.searchParams.get('path');
+    if (l.searchParams.get('type') === 'xhttp') assert.equal(p, '/351c9981');
+    else assert.equal(p, '/?ed=2048');
+  }
+  // 名称含 @ 但后缀不是两位大写码：不解析为标记，名称与 path 均不变
+  const channel = pick('104.16.1.3');
+  assert.equal(channel.length, 3);
+  for (const l of channel) {
+    assert.ok(nameOf(l).includes('@kejiland00-443-WS-TLS'), '频道名应原样保留：' + nameOf(l));
+    assert.ok(!l.searchParams.get('path').includes('rg='));
+  }
+  // 无标记域名条目：命名管线不变，仍为「优选域名-NN」，path 无 rg
+  const plainDomain = pick('example.org');
+  assert.equal(plainDomain.length, 3);
+  for ( const l of plainDomain ) {
+    assert.ok(nameOf(l).startsWith('优选域名'), '无标记域名应仍为优选域名-NN：' + nameOf(l));
+    assert.ok(!l.searchParams.get('path').includes('rg='));
+  }
+  // 域名条目带标记：rg 同样透传（经域名列表映射不丢失）
+  const domain = pick('saas.sin.fan');
+  assert.equal(domain.length, 3, '域名条目应生成三条');
+  for (const l of domain) {
+    const p = l.searchParams.get('path');
+    if (l.searchParams.get('type') === 'xhttp') assert.equal(p, '/351c9981?rg=JP');
+    else assert.equal(p, '/?ed=2048&rg=JP');
+    // 带 rg 的域名条目保留显示名（国家身份必须在名字里可见，主线命名修复口径）；
+    // 无 rg 的域名条目仍走既有管线渲染为「优选域名-NN」（见下方无标记域名断言）。
+    assert.ok(nameOf(l).startsWith('域名节点'), 'rg 域名条目应保留显示名：' + nameOf(l));
+    assert.ok(!nameOf(l).includes('@'));
+  }
+});
+
+test('buildCountryPool：混合模式——RG 地区出入口行、池外地区（FR）走经典池且不带标记', async () => {
+  const routes = fakeFetch({
+    'random-region/FR': ['104.16.31.1', '104.16.31.2', '104.16.31.3'].join('\n'),
+    'wetest.vip': new Error('wetest down')
+  });
+  let calls = 0;
+  const counting = async url => { calls++; return routes(url); };
+  const yx = await buildCountryPool(
+    { countryRegions: 'DE,FR', countryViaProxy: 'yes', countryEntryDomain: 'saas.sin.fan', countryPerRegion: '2' },
+    { fetchImpl: counting, noCache: true, resetCache: true }
+  );
+  assert.ok(calls > 0, '含池外地区时应拉取经典池来源');
+  const lines = yx.split('\n');
+  // 顺序按配置地区：DE（rg 行）在前，FR（经典行）随后
+  assert.equal(lines[0], 'saas.sin.fan:443#🇩🇪 德国@DE');
+  const frLines = lines.slice(1);
+  assert.deepEqual(frLines, ['104.16.31.1:443#🇫🇷 法国-01', '104.16.31.2:443#🇫🇷 法国-02']);
+  assert.ok(frLines.every(l => !l.includes('@')), '经典池行不得带 @RG 标记（池外发 rg 是假国家）');
+  // fail-open：经典部分全失败时只剩 rg 行，仍是成功池（非 null）
+  const partial = await buildCountryPool(
+    { countryRegions: 'DE,FR', countryViaProxy: 'yes', countryEntryDomain: 'saas.sin.fan', countryPerRegion: '2' },
+    { fetchImpl: downFetch, noCache: true }
+  );
+  assert.equal(partial, 'saas.sin.fan:443#🇩🇪 德国@DE');
+});
+
+test('RG_REGIONS：与内核 ProxyIP 池覆盖口径一致（10 国）', async () => {
+  const { RG_REGIONS } = await import('../country.mjs');
+  assert.deepEqual([...RG_REGIONS].sort(), ['DE', 'FI', 'GB', 'HK', 'JP', 'KR', 'NL', 'SE', 'SG', 'US']);
+});
+
+test('控制台渲染：via-proxy 控件存在、旧内核禁用、新内核可操作', async () => {
+  for (const config of [{ countryViaProxy: 'no', countryEntryDomain: 'saas.sin.fan' }, { countryNodes: 'yes' }]) {
+    const html = await (await createSubscriptionEngine(config, UUID).render(new Request('https://worker.example/' + UUID))).text();
+    const supported = Object.hasOwn(config, 'countryViaProxy');
+    const box = html.match(/<input[^>]*id="countryViaProxy"[^>]*>/)[0];
+    assert.equal(box.includes('disabled'), !supported);
+    const domainInput = html.match(/<input[^>]*id="countryEntryDomain"[^>]*>/)[0];
+    assert.equal(domainInput.includes('disabled'), !supported);
+    for (const [, script] of html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) new Function(script);
+  }
+});
+
+test('订阅集成：via-proxy 混合模式（DE/JP 出 rg 行、FR 走经典池无标记）', async () => fixture(async ({ seed, sub }) => {
+  seed({ ...BASE_SEED, epd: 'yes', countryNodes: 'yes', countryViaProxy: 'yes', countryRegions: 'DE,JP,FR', countryEntryDomain: 'saas.sin.fan', countryPerRegion: '2' });
+  globalThis.__CFDIRECT_COUNTRY_DEPS__ = {
+    fetchImpl: fakeFetch({
+      'random-region/FR': ['104.16.31.1', '104.16.31.2', '104.16.31.3'].join('\n'),
+      'wetest.vip': new Error('wetest down')
+    }),
+    noCache: true, resetCache: true
+  };
+  try {
+    const clashResponse = await sub('clash');
+    assert.equal(clashResponse.status, 200);
+    const yaml = await clashResponse.text();
+    // RG 地区：统一入口域名 + path 带 rg（节点名走域名命名管线为优选域名-NN，
+    // 国家身份由 server + rg 承载，与手填 saas.sin.fan 条目渲染口径一致）
+    assert.ok(yaml.includes('server: "saas.sin.fan"'), 'rg 国家节点 server 应为统一入口域名');
+    assert.ok(yaml.includes('/?ed=2048&rg=DE'), '德国节点 WS path 应带 rg=DE');
+    assert.ok(yaml.includes('/?ed=2048&rg=JP'), '日本节点 WS path 应带 rg=JP');
+    // 池外地区 FR：经典 bestcf 反代 IP 行（IP 条目保留国旗名），且绝不发 rg
+    assert.ok(yaml.includes('🇫🇷_法国-01'), 'FR 应出经典国家节点');
+    assert.ok(yaml.includes('104.16.31.1'), 'FR 节点 server 应为 bestcf 池 IP');
+    assert.ok(!yaml.includes('rg=FR'), 'FR 不得带 rg 参数（内核池外发 rg 是假国家）');
+    assert.ok(!yaml.includes('@FR'), 'FR 不得带 @FR 标记');
+    const names = [...yaml.matchAll(/- name: "([^"]+)"/g)].map(m => m[1]);
+    assert.ok(names.length > 0 && names.every(n => !n.includes('@')), '节点名不得残留 @RG 后缀');
+    assert.ok(yaml.includes('手填节点'), '手填 yx 仍应追加保留');
+    const base64Response = await sub('base64');
+    assert.equal(base64Response.status, 200);
+    const text = Buffer.from(await base64Response.text(), 'base64').toString('utf8');
+    const links = text.trim().split('\n').map(l => new URL(l));
+    const countryLinks = links.filter(l => l.hostname === 'saas.sin.fan');
+    assert.ok(countryLinks.length > 0, 'base64 订阅应含统一域名节点');
+    assert.ok(countryLinks.some(l => (l.searchParams.get('path') || '').includes('rg=DE')), 'base64 应含 rg=DE');
+    assert.ok(countryLinks.some(l => (l.searchParams.get('path') || '').includes('rg=JP')), 'base64 应含 rg=JP');
+    assert.ok(countryLinks.every(l => !decodeURIComponent(l.hash.slice(1)).includes('@')), 'base64 节点名不得残留 @');
+    const frLinks = links.filter(l => l.hostname === '104.16.31.1');
+    assert.ok(frLinks.length > 0, 'base64 应含 FR 经典节点');
+    assert.ok(frLinks.every(l => !(l.searchParams.get('path') || '').includes('rg=')), 'FR 经典节点 path 不得带 rg');
+  } finally { delete globalThis.__CFDIRECT_COUNTRY_DEPS__; }
+}));
 
 test('订阅集成：国家模式下保留预设优选域名桶（日常稳定入口不被国家池顶掉）', async () => fixture(async ({ seed, sub }) => {
   seed({ ...BASE_SEED, epd: 'yes', countryNodes: 'yes', countryRegions: 'JP', countryPerRegion: '2' });
