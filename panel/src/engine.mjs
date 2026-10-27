@@ -2,7 +2,6 @@
 import { createHash } from 'node:crypto';
 import { isIP } from 'node:net';
 import { buildSingboxConfig, normalizeNodeNames } from './singbox.mjs';
-import { 边缘过滤家宽节点 } from './jk-probe.mjs';
 export function createSubscriptionEngine(config, uuid) {
 const 基础64文本解码器 = new TextDecoder();
 
@@ -1174,9 +1173,12 @@ async function 获取家宽节点() {
     }
   }
   if (!节点列表.length || !证书) throw 最后错误 || new Error('没解析出能用的节点');
-  // 边缘侧连通性过滤：连不通的志愿者节点在生成订阅前就剔除（见 jk-probe.mjs，
-  // 非 Worker 运行时或探测异常时 fail-open 保留全部）。
-  节点列表 = await 边缘过滤家宽节点(节点列表);
+  // 2026-10-27 起不再做边缘侧连通性过滤（原 jk-probe）：每次 connect() 同样占
+  // 一个子请求名额，CFDirect 的订阅构建（国家池＋方案 A 解析）本身已吃掉大半
+  // 50 上限，探测打到一半预算耗尽、未探到的节点被误判「连不通」整批剔除——
+  // 线上实测解析出数十个只剩 4 个。志愿者节点上下线以分钟计，边缘探测结果
+  // 本来就转瞬过期；死活交给客户端的「家宽自动」（url-test/fallback）实时判，
+  // 那才是与实际链路同时同路的口径。jk-probe.mjs 与其单测保留备用。
   const 结果 = { 节点列表, 证书 };
   家宽缓存 = 结果;
   家宽缓存键 = 缓存键;
