@@ -55,6 +55,8 @@ test('低于32KiB的长字段也可保存，避免只扩大网关上限', async 
 }));
 
 test('换行、回车与逗号混排同时兼容订阅与优选管理API', async () => fixture(async ({ api, origin, host }) => {
+  // 钉住方案 A 解析回退：本用例验列表解析口径，域名条目 server 保持原域名断言
+  globalThis.__CFDIRECT_DNS_DEPS__ = { resolve: async () => null };
   const yx = '104.16.1.1:443#四版\r\n[2606:4700::1111]:8443#六版,example.com:2053#域名\r104.16.2.2:443#回车';
   assert.equal((await fetch(api + '/api/config', { method: 'POST', body: JSON.stringify({ yx, epd: 'yes' }) })).status, 200);
   const list = await (await fetch(api + '/api/preferred-ips')).json();
@@ -64,6 +66,7 @@ test('换行、回车与逗号混排同时兼容订阅与优选管理API', async
   assert.equal(nodes.length, 4);
   assert.ok(nodes.some(node => node.hostname === '[2606:4700::1111]' && node.port === '8443'));
   assert.ok(nodes.some(node => node.hostname === 'example.com' && node.port === '2053'));
+  delete globalThis.__CFDIRECT_DNS_DEPS__;
 }));
 
 test('配置超过请求上限时返回明确JSON错误且不落库', async () => fixture(async ({ api, values }) => {

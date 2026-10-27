@@ -380,6 +380,38 @@ let 备用地址列表 = [{
   port: 443
 }];
 
+// 方案 A 的渲染时解析缓存（模块级、跨请求共享）：订阅一次渲染要解析的域名
+// 有数十个，逐请求全量 DoH 会撞 Workers 子请求上限（实测批量尾部稳定失败），
+// 且徒增延迟。成功结果缓存 600s、回退结果 60s——仍属渲染时实时解析（分钟级
+// 新鲜），非静态写死。见 处理订阅请求 内的 解析域名服务器地址。
+const 域名解析模块缓存 = new Map();
+// 方案 A 子请求治理（2026-10-27）：解析结果图存 SESSION_KV（cfd:dnsipmap:v1），
+// 冷 isolate 一次读图即全中，避免逐域名 DoH 扇出（单域名最坏 4 次）叠加国家池
+// 拉取撞免费版 50 子请求上限（target=vg 冷构建 503 实测）。KV 不可用/无图时
+// 行为与原实现一致（逐域名 DoH + 模块缓存）。
+let 域名解析图 = null;
+let 域名解析图加载于 = 0;
+let 域名解析图脏 = false;
+let 本轮DoH计数 = 0; // 处理订阅请求入口清零；单轮 DoH 扇出上限见解析函数
+async function 确保域名解析图() {
+  const kv = globalThis.__CFUSION_SESSION_KV__;
+  if (!kv || typeof kv.get !== 'function') return;
+  if (域名解析图 && Date.now() - 域名解析图加载于 < 300000) return;
+  域名解析图加载于 = Date.now();
+  try {
+    const raw = await kv.get('cfd:dnsipmap:v1');
+    const parsed = raw ? JSON.parse(raw) : {};
+    域名解析图 = (parsed && typeof parsed === 'object') ? parsed : {};
+  } catch { if (!域名解析图) 域名解析图 = {}; }
+}
+async function 回写域名解析图() {
+  if (!域名解析图脏 || !域名解析图) return;
+  域名解析图脏 = false;
+  const kv = globalThis.__CFUSION_SESSION_KV__;
+  if (!kv || typeof kv.put !== 'function') return;
+  try { await kv.put('cfd:dnsipmap:v1', JSON.stringify(域名解析图), { expirationTtl: 7200 }); } catch {}
+}
+
 const 直连域名列表 = [{
   name: "cloudflare.182682.xyz",
   domain: "cloudflare.182682.xyz"
@@ -463,10 +495,14 @@ function 处理值节点别名部分(值785, 回退 = 'Node') {
 
 function 获取值节点别名基础(项目783) {
   const 主机782 = 规范化节点主机(项目783?.ip || 项目783?.domain || '');
-  if (主机782 && 主机782.includes(':') && /^[0-9a-fA-F:.]+$/.test(主机782)) {
+  // 方案 A：域名条目的 ip 已被渲染侧解析替换为 IP（见 解析域名服务器地址），
+  // 命名分类必须仍按原域名判，否则「优选域名-NN」会被误改成以域名文本命名的
+  // IP 条目名。条目带 原域名 时以其作分类主机，命名口径与替换前逐字一致。
+  const 分类主机 = 项目783?.原域名 ? 规范化节点主机(项目783.原域名) : 主机782;
+  if (分类主机 && 分类主机.includes(':') && /^[0-9a-fA-F:.]+$/.test(分类主机)) {
     return 处理值节点别名部分(项目783?.isp || 项目783?.name || '', 'IPv6优选');
   }
-  if (主机782 && !是否有效地址(主机782)) {
+  if (分类主机 && !是否有效地址(分类主机)) {
     // CFDirect：带 rg 标记的域名条目是「按国家走 ProxyIP 出口」的节点，国家
     // 身份必须在名字里可见，不能淹没在统一的「优选域名-NN」里；无 rg 的域名
     // 条目保持上游口径不变。
@@ -1258,6 +1294,7 @@ async function 处理订阅请求(请求507, 用户506, 网址505 = null) {
       headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }
     });
   }
+  本轮DoH计数 = 0;
   const 别名命名器502 = 创建值节点命名器(false);
 
   // 如果启用了ECH，使用自定义值
@@ -1314,19 +1351,95 @@ async function 处理订阅请求(请求507, 用户506, 网址505 = null) {
       }
     }
   }
+  // CFDirect 方案 A（2026-10-27）：优选域名桶与 rg 入口的域名条目，渲染时把
+  // server 解析成 IP 下发。动因：KFusion(mihomo) 对「代理服务器域名」的解析有
+  // 故障，域名型 server 在其上全超时（同批 IP 型节点正常、Karing 正常、订阅
+  // 字段逐项核对无误），把解析移到渲染侧即可绕开。sni/host 不走此路径——它们
+  // 恒为工作器域名，保持逐字不变。解析在每次渲染时经 DoH 实时进行；任何失败
+  // （超时/无 A 记录/异常）一律回退原域名，绝不让订阅渲染失败。测试可经
+  // globalThis.__CFDIRECT_DNS_DEPS__ = { resolve: async 域名 => ip|null } 注入。
+  async function 解析域名服务器地址(域名) {
+    if (typeof 域名 !== 'string' || !域名.includes('.') || 域名.includes(':') || /^\d{1,3}(\.\d{1,3}){3}$/.test(域名)) {
+      return 域名;
+    }
+    // 注入解析（测试缝）存在时绕过模块缓存，保证用例间互不污染、结果确定。
+    const 注入解析 = globalThis.__CFDIRECT_DNS_DEPS__?.resolve;
+    const 用缓存 = typeof 注入解析 !== 'function';
+    if (用缓存) {
+      const 缓存项 = 域名解析模块缓存.get(域名);
+      if (缓存项 && 缓存项.到期 > Date.now()) {
+        return 缓存项.地址;
+      }
+    }
+    if (用缓存) {
+      await 确保域名解析图();
+      const 图项 = 域名解析图?.[域名];
+      if (图项 && 图项.到期 > Date.now()) {
+        域名解析模块缓存.set(域名, { 地址: 图项.地址, 到期: 图项.到期 });
+        return 图项.地址;
+      }
+    }
+    let 地址 = 域名;
+    try {
+      let 候选 = null;
+      if (typeof 注入解析 === 'function') {
+        候选 = await 注入解析(域名);
+      } else {
+        // 多家 DoH 依次尝试：不同解析网络对个别域名（尤其冷门第三方域名）的
+        // 可见性实测不一致——同一名字在本机四家全有 A 记录、在 Workers 出口
+        // 前两家却稳定无结果。故依次换解析网络重试，仍无结果才回退原域名。
+        for (const 端点 of ['https://dns.quad9.net/dns-query', 'https://dns.alidns.com/resolve', 'https://cloudflare-dns.com/dns-query', 'https://dns.google/resolve']) {
+            if (本轮DoH计数 >= 24) break; // 单轮预算：与国家池等其它拉取共享 50 子请求上限，超限即回退原域名（KV 图暖后不再触发）
+            本轮DoH计数++;
+          try {
+            const 响应 = await fetch(端点 + '?name=' + encodeURIComponent(域名) + '&type=A', {
+              headers: { Accept: 'application/dns-json' },
+              signal: AbortSignal.timeout(2500)
+            });
+            if (响应.ok) {
+              const 数据 = await 响应.json();
+              const 记录 = (数据?.Answer || []).filter(项 => 项?.type === 1 && typeof 项.data === 'string' && /^\d{1,3}(\.\d{1,3}){3}$/.test(项.data));
+              if (记录.length > 0) {
+                候选 = 记录[Math.floor(Math.random() * 记录.length)].data;
+                break;
+              }
+            }
+          } catch (单次解析错误) {
+            // 继续尝试下一家
+          }
+        }
+      }
+      if (typeof 候选 === 'string' && /^\d{1,3}(\.\d{1,3}){3}$/.test(候选)) {
+        地址 = 候选;
+      }
+    } catch (解析错误) {
+      // fail-safe：解析失败回退原域名，不影响渲染
+    }
+    // 解析成功缓存 600s；回退（未解析出 IP）只缓存 60s，避免坏域名长期钉死、
+    // 也避免每轮渲染为同一批坏域名重复烧子请求。注入模式不写缓存。
+    if (用缓存) {
+      const 到期 = Date.now() + (地址 === 域名 ? 60000 : 600000);
+      域名解析模块缓存.set(域名, { 地址, 到期 });
+      if (域名解析图) { 域名解析图[域名] = { 地址, 到期 }; 域名解析图脏 = true; }
+    }
+    return 地址;
+  }
   const 是否有自定义优选 = 自定义优选地址列表.length > 0 || 自定义优选域名列表.length > 0;
   if (禁用优选) {} else if (是否有自定义优选) {
     if (自定义优选地址列表.length > 0 && 启用优选地址) {
       await 添加节点列表来源列表(自定义优选地址列表);
     }
     if (自定义优选域名列表.length > 0 && 启用优选域名) {
-      const 自定义域名列表 = 自定义优选域名列表.map(丁值492 => ({
-        ip: 丁值492.domain,
+      // 域名条目（含手填优选域名与 rg 国家入口）server 改 IP 下发（方案 A）；
+      // 名称与 rg 透传逐字不变。
+      const 自定义域名列表 = await Promise.all(自定义优选域名列表.map(async 丁值492 => ({
+        ip: await 解析域名服务器地址(丁值492.domain),
+        原域名: 丁值492.domain,
         port: 丁值492.port,
         isp: 丁值492.name || 丁值492.domain,
         // 地区标记透传：生成器据此给节点 path 追加 rg（IP 条目直传列表、无需映射）
         ...(丁值492.rg ? { rg: 丁值492.rg } : {})
-      }));
+      })));
       await 添加节点列表来源列表(自定义域名列表);
     }
     // CFDirect 国家模式补回预设优选域名桶：国家池占住 yx 后预设会被整体跳过，
@@ -1334,18 +1447,21 @@ async function 处理订阅请求(请求507, 用户506, 网址505 = null) {
     // 日常稳定性靠它们；海外反代 IP 只适合选地区。仅补域名桶——远程 IP 桶来源
     // 不稳定且与国家池重叠，不补。
     if (国家节点已开启 && 启用优选域名) {
-      const 域名列表 = 直连域名列表.map(丁值491 => ({
-        ip: 丁值491.domain,
+      // 预设优选域名桶同走方案 A：server 改 IP 下发，名称不变。
+      const 域名列表 = await Promise.all(直连域名列表.map(async 丁值491 => ({
+        ip: await 解析域名服务器地址(丁值491.domain),
+        原域名: 丁值491.domain,
         isp: 丁值491.name || 丁值491.domain
-      }));
+      })));
       await 添加节点列表来源列表(域名列表);
     }
   } else {
     if (启用优选域名) {
-      const 域名列表 = 直连域名列表.map(丁值491 => ({
-        ip: 丁值491.domain,
+      const 域名列表 = await Promise.all(直连域名列表.map(async 丁值491 => ({
+        ip: await 解析域名服务器地址(丁值491.domain),
+        原域名: 丁值491.domain,
         isp: 丁值491.name || 丁值491.domain
-      }));
+      })));
       await 添加节点列表来源列表(域名列表);
     }
     if (启用优选地址) {
@@ -1424,6 +1540,7 @@ async function 处理订阅请求(请求507, 用户506, 网址505 = null) {
       try {
         订阅内容 = await 生成家宽链式值(最终链接列表);
       } catch (错误) {
+        await 回写域名解析图();
         return new Response('家宽节点暂时拉不到：' + (错误 && 错误.message ? 错误.message : 错误) + '\n过几分钟再更新，客户端会先用着上一份。', {
           status: 503,
           headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }
@@ -1477,6 +1594,7 @@ async function 处理订阅请求(请求507, 用户506, 网址505 = null) {
       响应头部列表['X-ECH-Config-Length'] = String(加密客户端问候配置501.length);
     }
   }
+  await 回写域名解析图();
   return new Response(订阅内容, {
     headers: 响应头部列表
   });
@@ -1494,7 +1612,7 @@ function 生成链接列表来源源(列表482, 用户481, 工作器域名480, �
   for (const 项目468 of 列表482) {
     const 安全地址467 = 项目468.ip.includes(':') ? `[${项目468.ip}]` : 项目468.ip;
     // 地区标记透传：带 rg 的条目在 WS path 查询串尾追加 rg（内核按国家选出口）
-    const 条目套接字路径 = 项目468.rg ? `${网页套接字路径471}&rg=${项目468.rg}` : 网页套接字路径471;
+    const 条目套接字路径 = 项目468.rg ? `/rg-${项目468.rg}${网页套接字路径471}` : 网页套接字路径471;
     let 值值生成466 = [];
     if (项目468.port) {
       const 端口465 = 项目468.port;
@@ -1583,7 +1701,7 @@ async function 生成木马链接列表来源源(列表455, 用户454, 工作器
   for (const 项目443 of 列表455) {
     const 安全地址442 = 项目443.ip.includes(':') ? `[${项目443.ip}]` : 项目443.ip;
     // 地区标记透传：带 rg 的条目在 WS path 查询串尾追加 rg（内核按国家选出口）
-    const 条目套接字路径 = 项目443.rg ? `${网页套接字路径446}&rg=${项目443.rg}` : 网页套接字路径446;
+    const 条目套接字路径 = 项目443.rg ? `/rg-${项目443.rg}${网页套接字路径446}` : 网页套接字路径446;
     let 值值生成 = [];
     if (项目443.port) {
       const 端口441 = 项目443.port;
@@ -5084,9 +5202,10 @@ function 生成扩展超文本链接列表来源源(列表76, 用户75, 工作�
       fp: 'chrome',
       type: 'xhttp',
       host: 工作器域名74,
-      // 地区标记透传：XHTTP path 本无查询串，rg 以 ?rg= 形式挂上（与 WS 的
-      // /?ed=2048&rg= 同为 query 参数，内核按国家选出口）；无 rg 时逐字不变。
-      path: 项目68.rg ? `/${节点路径}?rg=${项目68.rg}` : `/${节点路径}`,
+      // 地区标记透传：rg 放进路径段（/rg-DE）而非查询串——sing-box 等客户端
+      // 构造 WS 请求 URL 时会转义路径里的 ? 致查询丢失（2026-10-26 实测全落
+      // 默认地区），路径段任何客户端都原样保留；内核 zzRgP 路径优先、查询兜底。
+      path: 项目68.rg ? `/${节点路径}/rg-${项目68.rg}` : `/${节点路径}`,
       mode: 'stream-one'
     });
     const { 头: 叉填充头65, 键: 叉填充键65 } = 获取叉HTTP填充标识(用户75);

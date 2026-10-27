@@ -422,7 +422,7 @@ export async function handlePanel(request) {
     let effectiveConfig = config;
     if (subscription) {
       const countryDeps = (globalThis.__CFDIRECT_COUNTRY_DEPS__ && typeof globalThis.__CFDIRECT_COUNTRY_DEPS__ === 'object') ? globalThis.__CFDIRECT_COUNTRY_DEPS__ : {};
-      const countryYx = await resolveCountryYx(config, countryDeps).catch(() => null);
+      const countryYx = await resolveCountryYx(config, { ...countryDeps, kv: globalThis.__CFUSION_SESSION_KV__ || null }).catch(() => null);
       if (countryYx) {
         const manualYx = String(config.yx || '').trim();
         effectiveConfig = { ...config, yx: manualYx ? countryYx + '\n' + manualYx : countryYx };

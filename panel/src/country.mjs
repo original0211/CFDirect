@@ -118,6 +118,23 @@ export async function buildCountryPool(config = {}, deps = {}) {
   const cacheKey = countryCacheKey(config);
   if (deps.resetCache) { countryCache = { key: '', at: 0, value: null }; lastGoodCountry = null; }
   if (!deps.noCache && countryCache.value && countryCache.key === cacheKey && now - countryCache.at < 600000) return countryCache.value;
+  // 跨 isolate 池缓存（SESSION_KV）：冷 isolate 构建国家池要拉十几二十个远程
+  // 列表，与方案 A 的域名 DoH 解析叠加会撞免费版 50 子请求上限（2026-10-27
+  // target=vg 冷构建 503 实测）。池文本整体存一份 KV，命中即零拉取返回。
+  const kv = deps.kv || null;
+  const kvKey = 'cfd:cpool:' + cacheKey;
+  if (kv && !deps.noCache) {
+    try {
+      const raw = await kv.get(kvKey);
+      if (raw) {
+        const hit = JSON.parse(raw);
+        if (hit && typeof hit.value === 'string' && hit.value && now - (hit.at || 0) < 600000) {
+          countryCache = { key: cacheKey, at: now, value: hit.value };
+          return hit.value;
+        }
+      }
+    } catch { /* KV 读失败按未命中继续构建 */ }
+  }
 
   // 混合模式分工（countryViaProxy=yes 时）：RG_REGIONS 内的地区出「统一入口
   // 域名 + @RG 标记」行（每区一条，入口走 Anycast 优选域名、国家由内核按 rg
@@ -195,7 +212,13 @@ export async function buildCountryPool(config = {}, deps = {}) {
   }
   const value = merged.length ? merged.join('\n') : null;
   countryCache = { key: cacheKey, at: now, value };
-  if (value) lastGoodCountry = { key: cacheKey, value };
+  if (value) {
+    lastGoodCountry = { key: cacheKey, value };
+    if (kv) {
+      try { await kv.put(kvKey, JSON.stringify({ at: now, value }), { expirationTtl: 1200 }); }
+      catch { /* KV 写失败不影响本次构建结果 */ }
+    }
+  }
   return value;
 }
 

@@ -102,3 +102,42 @@ test('没有备注的压缩IPv6仍生成默认名称，裸地址不误拆端口'
   assert.ok(links.every(link => link.hostname === '[2606:4700::1111]'));
   assert.ok(links.every(link => decodeURIComponent(link.hash.slice(1)).startsWith('IPv6优选-')));
 });
+
+test('方案 A：手填域名条目 server 改 IP 下发，sni/host 保持工作器域名', async () => {
+  globalThis.__CFDIRECT_DNS_DEPS__ = { resolve: async 域名 => 域名 === 'saas.sin.fan' ? '203.0.113.9' : null };
+  try {
+    const text = Buffer.from(await subscription('base64', { epd: 'yes', yx: 'saas.sin.fan:443#手填域名节点' }), 'base64').toString('utf8');
+    const links = text.trim().split('\n').map(link => new URL(link));
+    assert.ok(links.length > 0);
+    assert.ok(links.every(link => link.hostname === '203.0.113.9'), 'hostname 应全为解析 IP');
+    assert.ok(links.every(link => link.searchParams.get('sni') !== '203.0.113.9' && link.searchParams.get('host') !== '203.0.113.9'), 'sni/host 不得为解析 IP');
+    const yaml = await subscription('clash', { epd: 'yes', yx: 'saas.sin.fan:443#手填域名节点' });
+    assert.ok(yaml.includes('server: "203.0.113.9"'));
+    assert.ok(!yaml.includes('server: "saas.sin.fan"'));
+    assert.ok(!yaml.includes('servername: "203.0.113.9"'));
+    assert.match(yaml, /- name: "优选域名-\d+"/, '命名分类仍按原域名：应保留优选域名-NN，不得改成域名文本/IP 命名');
+  } finally { delete globalThis.__CFDIRECT_DNS_DEPS__; }
+});
+
+test('方案 A：SESSION_KV 解析图命中优先于实时解析，且新解析回写图', async () => {
+  const store = new Map();
+  const puts = [];
+  globalThis.__CFUSION_SESSION_KV__ = {
+    async get(k) { return store.has(k) ? store.get(k) : null; },
+    async put(k, v) { puts.push(k); store.set(k, v); }
+  };
+  store.set('cfd:dnsipmap:v1', JSON.stringify({ 'saas.sin.fan': { 地址: '198.51.100.7', 到期: Date.now() + 3600000 } }));
+  try {
+    const yaml = await subscription('clash', { epd: 'yes', yx: 'saas.sin.fan:443#手填域名节点' });
+    assert.ok(yaml.includes('server: "198.51.100.7"'), '应优先用 KV 解析图里的 IP，而非实时 DoH 结果');
+    assert.ok(puts.includes('cfd:dnsipmap:v1') || store.get('cfd:dnsipmap:v1').includes('198.51.100.7'), '解析图应保持可用（命中回写或原样保留）');
+  } finally { delete globalThis.__CFUSION_SESSION_KV__; }
+});
+
+test('方案 A：解析失败回退原域名作 server（fail-safe）', async () => {
+  globalThis.__CFDIRECT_DNS_DEPS__ = { resolve: async () => { throw new Error('dns down'); } };
+  try {
+    const yaml = await subscription('clash', { epd: 'yes', yx: 'saas.sin.fan:443#手填域名节点' });
+    assert.ok(yaml.includes('server: "saas.sin.fan"'), '解析失败应回退原域名');
+  } finally { delete globalThis.__CFDIRECT_DNS_DEPS__; }
+});

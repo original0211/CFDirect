@@ -8,7 +8,8 @@ pu = urllib.parse.urlparse(PROXY)
 PROXY_AUTH = base64.b64encode(f"{pu.username}:{pu.password}".encode()).decode()
 HOST = 'cfd-core.brodydung.eu.org'
 UUID, RG = sys.argv[1], (sys.argv[2] if len(sys.argv) > 2 else '')
-TARGET_HOST, TARGET_PORT = 'www.cloudflare.com', 443
+import os as _e
+TARGET_HOST, TARGET_PORT = _e.environ.get('PROBE_TARGET', 'www.cloudflare.com'), 443
 
 def vless_header():
     dom = TARGET_HOST.encode()
@@ -63,7 +64,8 @@ class WSStream:
         except (socket.timeout, ssl.SSLError, ConnectionError):
             return b''
 
-path = '/?ed=2048' + (f'&rg={RG}' if RG else '')
+import os as _os
+path = _os.environ.get('PROBE_PATH') or ('/?ed=2048' + (f'&rg={RG}' if RG else ''))
 ws = WSStream(ws_connect(path))
 ctx = ssl.create_default_context()
 bin_, bout = ssl.MemoryBIO(), ssl.MemoryBIO()
@@ -84,7 +86,7 @@ try:
             pump_out()
             if not pump_in(): raise RuntimeError('eof during tls handshake')
     pump_out()
-    tls.write(b'GET /cdn-cgi/trace HTTP/1.1\r\nHost: www.cloudflare.com\r\nConnection: close\r\n\r\n')
+    tls.write(('GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\nUser-Agent: probe\r\n\r\n' % (_e.environ.get('PROBE_PATH2', '/cdn-cgi/trace'), TARGET_HOST)).encode())
     pump_out()
     out = b''
     for _ in range(50):
@@ -99,6 +101,7 @@ try:
     body = out.decode(errors='replace')
     import re as _re
     kv = dict(_re.findall(r'(?m)^(ip|loc|colo)=(.*)$', body))
-    print('rg=%s -> ip=%s loc=%s colo=%s' % (RG or '(none)', kv.get('ip'), kv.get('loc'), kv.get('colo')))
+    if kv: print('rg=%s -> ip=%s loc=%s colo=%s' % (RG or '(none)', kv.get('ip'), kv.get('loc'), kv.get('colo')))
+    else: print('rg=%s -> %r' % (RG or '(none)', body.strip()[-90:]))
 except Exception as e:
     print(f"rg={RG or '(none)'} -> ERROR {type(e).__name__}: {e}")

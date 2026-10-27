@@ -301,6 +301,8 @@ test('引擎默认值：countryViaProxy/countryEntryDomain', () => {
 });
 
 test('yx 地区标记 @RG：三协议 path 透传 rg、显示名去后缀、无标记与频道名不变', async () => {
+  // 钉住方案 A 解析回退（本用例只验 rg 透传与命名，server 保持原域名形态断言）
+  globalThis.__CFDIRECT_DNS_DEPS__ = { resolve: async () => null };
   const yx = [
     '104.16.1.1:443#德国出口@DE',
     '104.16.1.2:443#普通节点',
@@ -317,13 +319,13 @@ test('yx 地区标记 @RG：三协议 path 透传 rg、显示名去后缀、无�
   const links = Buffer.from(await response.text(), 'base64').toString('utf8').trim().split('\n').map(l => new URL(l));
   const pick = host => links.filter(l => l.hostname === host);
   const nameOf = l => decodeURIComponent(l.hash.slice(1));
-  // IP 条目带标记：vless/trojan 的 WS path 尾追加 &rg=DE，xhttp 以 ?rg=DE 挂查询
+  // IP 条目带标记：rg 走路径段（WS /rg-DE/?ed=2048，xhttp /uuid8/rg-DE）——查询串会被 sing-box 等客户端转义丢失
   const de = pick('104.16.1.1');
   assert.equal(de.length, 3, 'DE 条目应生成 vless/trojan/xhttp 三条');
   for (const l of de) {
     const p = l.searchParams.get('path');
-    if (l.searchParams.get('type') === 'xhttp') assert.equal(p, '/351c9981?rg=DE');
-    else assert.equal(p, '/?ed=2048&rg=DE');
+    if (l.searchParams.get('type') === 'xhttp') assert.equal(p, '/351c9981/rg-DE');
+    else assert.equal(p, '/rg-DE/?ed=2048');
     assert.ok(nameOf(l).startsWith('德国出口'), '显示名应去掉 @DE 后缀：' + nameOf(l));
     assert.ok(!nameOf(l).includes('@'), '显示名不得残留 @');
   }
@@ -354,13 +356,37 @@ test('yx 地区标记 @RG：三协议 path 透传 rg、显示名去后缀、无�
   assert.equal(domain.length, 3, '域名条目应生成三条');
   for (const l of domain) {
     const p = l.searchParams.get('path');
-    if (l.searchParams.get('type') === 'xhttp') assert.equal(p, '/351c9981?rg=JP');
-    else assert.equal(p, '/?ed=2048&rg=JP');
+    if (l.searchParams.get('type') === 'xhttp') assert.equal(p, '/351c9981/rg-JP');
+    else assert.equal(p, '/rg-JP/?ed=2048');
     // 带 rg 的域名条目保留显示名（国家身份必须在名字里可见，主线命名修复口径）；
     // 无 rg 的域名条目仍走既有管线渲染为「优选域名-NN」（见下方无标记域名断言）。
     assert.ok(nameOf(l).startsWith('域名节点'), 'rg 域名条目应保留显示名：' + nameOf(l));
     assert.ok(!nameOf(l).includes('@'));
   }
+  delete globalThis.__CFDIRECT_DNS_DEPS__;
+});
+
+test('buildCountryPool：SESSION_KV 跨 isolate 池缓存（冷 isolate 零拉取命中）', async () => {
+  const store = new Map();
+  const kv = {
+    async get(k) { return store.has(k) ? store.get(k) : null; },
+    async put(k, v) { store.set(k, v); }
+  };
+  const routes = fakeFetch({
+    'random-region/FR': ['104.16.41.1', '104.16.41.2'].join('\n'),
+    'wetest.vip': new Error('wetest down')
+  });
+  let calls = 0;
+  const counting = async url => { calls++; return routes(url); };
+  const cfg = { countryRegions: 'FR', countryPerRegion: '2' };
+  const first = await buildCountryPool(cfg, { fetchImpl: counting, resetCache: true, kv });
+  assert.ok(first && first.includes('104.16.41.1'), '首建应出 FR 经典池');
+  assert.ok(calls > 0, '首建应有远程拉取');
+  assert.ok([...store.keys()].some(k => k.startsWith('cfd:cpool:')), '首建后应回写 KV 池缓存');
+  // 模拟冷 isolate：内存缓存清空、fetch 全挂——只能靠 KV 命中
+  calls = 0;
+  const second = await buildCountryPool(cfg, { fetchImpl: downFetch, resetCache: true, kv });
+  assert.equal(second, first, '冷 isolate 应由 KV 池缓存返回同一池文本');
 });
 
 test('buildCountryPool：混合模式——RG 地区出入口行、池外地区（FR）走经典池且不带标记', async () => {
@@ -408,6 +434,9 @@ test('控制台渲染：via-proxy 控件存在、旧内核禁用、新内核可�
 
 test('订阅集成：via-proxy 混合模式（DE/JP 出 rg 行、FR 走经典池无标记）', async () => fixture(async ({ seed, sub }) => {
   seed({ ...BASE_SEED, epd: 'yes', countryNodes: 'yes', countryViaProxy: 'yes', countryRegions: 'DE,JP,FR', countryEntryDomain: 'saas.sin.fan', countryPerRegion: '2' });
+  // 钉住方案 A 的解析回退：本用例验的是 rg 透传与混合模式口径，解析返回 null
+  // → server 保持原域名（fail-safe 形态）。
+  globalThis.__CFDIRECT_DNS_DEPS__ = { resolve: async () => null };
   globalThis.__CFDIRECT_COUNTRY_DEPS__ = {
     fetchImpl: fakeFetch({
       'random-region/FR': ['104.16.31.1', '104.16.31.2', '104.16.31.3'].join('\n'),
@@ -422,12 +451,12 @@ test('订阅集成：via-proxy 混合模式（DE/JP 出 rg 行、FR 走经典池
     // RG 地区：统一入口域名 + path 带 rg（节点名走域名命名管线为优选域名-NN，
     // 国家身份由 server + rg 承载，与手填 saas.sin.fan 条目渲染口径一致）
     assert.ok(yaml.includes('server: "saas.sin.fan"'), 'rg 国家节点 server 应为统一入口域名');
-    assert.ok(yaml.includes('/?ed=2048&rg=DE'), '德国节点 WS path 应带 rg=DE');
-    assert.ok(yaml.includes('/?ed=2048&rg=JP'), '日本节点 WS path 应带 rg=JP');
+    assert.ok(yaml.includes('/rg-DE/?ed=2048'), '德国节点 WS path 应带 /rg-DE 段');
+    assert.ok(yaml.includes('/rg-JP/?ed=2048'), '日本节点 WS path 应带 /rg-JP 段');
     // 池外地区 FR：经典 bestcf 反代 IP 行（IP 条目保留国旗名），且绝不发 rg
     assert.ok(yaml.includes('🇫🇷_法国-01'), 'FR 应出经典国家节点');
     assert.ok(yaml.includes('104.16.31.1'), 'FR 节点 server 应为 bestcf 池 IP');
-    assert.ok(!yaml.includes('rg=FR'), 'FR 不得带 rg 参数（内核池外发 rg 是假国家）');
+    assert.ok(!yaml.includes('/rg-FR'), 'FR 不得带 rg 段（内核池外发 rg 是假国家）');
     assert.ok(!yaml.includes('@FR'), 'FR 不得带 @FR 标记');
     const names = [...yaml.matchAll(/- name: "([^"]+)"/g)].map(m => m[1]);
     assert.ok(names.length > 0 && names.every(n => !n.includes('@')), '节点名不得残留 @RG 后缀');
@@ -438,17 +467,66 @@ test('订阅集成：via-proxy 混合模式（DE/JP 出 rg 行、FR 走经典池
     const links = text.trim().split('\n').map(l => new URL(l));
     const countryLinks = links.filter(l => l.hostname === 'saas.sin.fan');
     assert.ok(countryLinks.length > 0, 'base64 订阅应含统一域名节点');
-    assert.ok(countryLinks.some(l => (l.searchParams.get('path') || '').includes('rg=DE')), 'base64 应含 rg=DE');
-    assert.ok(countryLinks.some(l => (l.searchParams.get('path') || '').includes('rg=JP')), 'base64 应含 rg=JP');
+    assert.ok(countryLinks.some(l => (l.searchParams.get('path') || '').includes('/rg-DE')), 'base64 应含 /rg-DE 段');
+    assert.ok(countryLinks.some(l => (l.searchParams.get('path') || '').includes('/rg-JP')), 'base64 应含 /rg-JP 段');
     assert.ok(countryLinks.every(l => !decodeURIComponent(l.hash.slice(1)).includes('@')), 'base64 节点名不得残留 @');
     const frLinks = links.filter(l => l.hostname === '104.16.31.1');
     assert.ok(frLinks.length > 0, 'base64 应含 FR 经典节点');
-    assert.ok(frLinks.every(l => !(l.searchParams.get('path') || '').includes('rg=')), 'FR 经典节点 path 不得带 rg');
-  } finally { delete globalThis.__CFDIRECT_COUNTRY_DEPS__; }
+    assert.ok(frLinks.every(l => !(l.searchParams.get('path') || '').includes('/rg-')), 'FR 经典节点 path 不得带 rg 段');
+  } finally { delete globalThis.__CFDIRECT_COUNTRY_DEPS__; delete globalThis.__CFDIRECT_DNS_DEPS__; }
+}));
+
+test('订阅集成：方案 A——rg 入口与预设域名桶 server 改 IP 下发（sni/host 与 rg 不变）', async () => fixture(async ({ seed, sub }) => {
+  seed({ ...BASE_SEED, epd: 'yes', countryNodes: 'yes', countryViaProxy: 'yes', countryRegions: 'DE,JP,FR', countryEntryDomain: 'saas.sin.fan', countryPerRegion: '2' });
+  // 只有 saas.sin.fan 解析成功；其余域名（含预设桶）返回 null → 逐条回退原域名，
+  // 证明混合结果下渲染不失败、未解析条目逐字不变。
+  globalThis.__CFDIRECT_DNS_DEPS__ = { resolve: async 域名 => 域名 === 'saas.sin.fan' ? '203.0.113.9' : null };
+  globalThis.__CFDIRECT_COUNTRY_DEPS__ = {
+    fetchImpl: fakeFetch({
+      'random-region/FR': ['104.16.31.1', '104.16.31.2', '104.16.31.3'].join('\n'),
+      'wetest.vip': new Error('wetest down')
+    }),
+    noCache: true, resetCache: true
+  };
+  try {
+    const clashResponse = await sub('clash');
+    assert.equal(clashResponse.status, 200);
+    const yaml = await clashResponse.text();
+    assert.ok(yaml.includes('server: "203.0.113.9"'), 'rg 节点 server 应为解析出的 IP');
+    assert.ok(!yaml.includes('server: "saas.sin.fan"'), 'saas.sin.fan 不应再作 server 出现');
+    assert.ok(yaml.includes('/rg-DE/?ed=2048') && yaml.includes('/rg-JP/?ed=2048'), 'rg path 段保持不变');
+    assert.ok(!yaml.includes('servername: "203.0.113.9"'), 'servername 不得被 IP 污染');
+    assert.ok(yaml.includes('🇫🇷_法国-01'), 'FR 经典节点不受影响');
+    const base64Response = await sub('base64');
+    assert.equal(base64Response.status, 200);
+    const text = Buffer.from(await base64Response.text(), 'base64').toString('utf8');
+    const links = text.trim().split('\n').map(l => new URL(l));
+    const rgLinks = links.filter(l => (l.searchParams.get('path') || '').includes('/rg-'));
+    assert.ok(rgLinks.length > 0, 'base64 应含 rg 节点');
+    assert.ok(rgLinks.every(l => l.hostname === '203.0.113.9'), 'rg 节点 hostname 应全为解析 IP');
+    assert.ok(rgLinks.every(l => l.searchParams.get('sni') !== '203.0.113.9' && l.searchParams.get('host') !== '203.0.113.9'), 'sni/host 不得被解析 IP 污染');
+    const 带Sni = rgLinks.filter(l => l.searchParams.get('sni'));
+    assert.ok(带Sni.length > 0 && 带Sni.every(l => l.searchParams.get('host') === l.searchParams.get('sni')), '带 sni 的 rg 链接 host 与 sni 同口径、保持原域名');
+    assert.ok(links.some(l => l.hostname === '104.16.31.1'), 'FR 经典节点保持不变');
+  } finally { delete globalThis.__CFDIRECT_COUNTRY_DEPS__; delete globalThis.__CFDIRECT_DNS_DEPS__; }
+}));
+
+test('订阅集成：方案 A 解析抛错时 fail-safe 回退原域名、渲染不失败', async () => fixture(async ({ seed, sub }) => {
+  seed({ ...BASE_SEED, epd: 'yes', countryNodes: 'yes', countryViaProxy: 'yes', countryRegions: 'DE', countryEntryDomain: 'saas.sin.fan', countryPerRegion: '2' });
+  globalThis.__CFDIRECT_DNS_DEPS__ = { resolve: async () => { throw new Error('dns down'); } };
+  globalThis.__CFDIRECT_COUNTRY_DEPS__ = { fetchImpl: downFetch, noCache: true, resetCache: true };
+  try {
+    const response = await sub('clash');
+    assert.equal(response.status, 200);
+    const yaml = await response.text();
+    assert.ok(yaml.includes('server: "saas.sin.fan"'), '解析失败应回退原域名作 server');
+    assert.ok(yaml.includes('/rg-DE/?ed=2048'), 'rg 透传不受解析失败影响');
+  } finally { delete globalThis.__CFDIRECT_COUNTRY_DEPS__; delete globalThis.__CFDIRECT_DNS_DEPS__; }
 }));
 
 test('订阅集成：国家模式下保留预设优选域名桶（日常稳定入口不被国家池顶掉）', async () => fixture(async ({ seed, sub }) => {
   seed({ ...BASE_SEED, epd: 'yes', countryNodes: 'yes', countryRegions: 'JP', countryPerRegion: '2' });
+  globalThis.__CFDIRECT_DNS_DEPS__ = { resolve: async () => null };
   globalThis.__CFDIRECT_COUNTRY_DEPS__ = {
     fetchImpl: fakeFetch({
       'random-region/JP': ['104.16.21.1', '104.16.21.2'].join('\n'),
@@ -462,5 +540,5 @@ test('订阅集成：国家模式下保留预设优选域名桶（日常稳定�
     const yaml = await response.text();
     assert.ok(yaml.includes('🇯🇵_日本-01'), '国家节点在场');
     assert.ok(yaml.includes('优选域名-'), '预设优选域名桶同时保留');
-  } finally { delete globalThis.__CFDIRECT_COUNTRY_DEPS__; }
+  } finally { delete globalThis.__CFDIRECT_COUNTRY_DEPS__; delete globalThis.__CFDIRECT_DNS_DEPS__; }
 }));

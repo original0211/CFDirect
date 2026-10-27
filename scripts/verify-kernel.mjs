@@ -268,65 +268,73 @@ console.log('B4. Ke（WS 建连）eg 分支');
     && sc.zzS().fallback === 2);
 }
 
-console.log('B5. rg 按节点国家出口（ProxyIP 优先 + zzRg 校验）');
+console.log('B5. rg 按节点国家出口（降级池地区 + zzRg/zzRgP 校验）');
 {
-  const zz = new Function('let zzs=null;' + zzSrc + ';return {zzRg};')();
+  const zz = new Function('let zzs=null;' + zzSrc + ';return {zzRg, zzRgP};')();
   ok('zzRg 小写转大写', zz.zzRg('de') === 'DE');
   ok('zzRg 合法两位代码透传', zz.zzRg('FR') === 'FR');
   ok('zzRg 非法 XX9 → 忽略（空）', zz.zzRg('XX9') === '');
   ok('zzRg 缺失/空/一位/三位 → 忽略（空）', zz.zzRg(null) === '' && zz.zzRg(undefined) === ''
     && zz.zzRg('') === '' && zz.zzRg('D') === '' && zz.zzRg('DEU') === '');
+  // zzRgP：路径段形式优先（客户端可能转义/丢弃 WS 查询串，路径段最稳），查询兜底
+  const U = (path, qs) => new URL('https://w.example' + path + (qs ? '?' + qs : ''));
+  ok('zzRgP 路径段 /rg-DE/ 命中', zz.zzRgP(U('/rg-DE/', 'ed=2048')) === 'DE');
+  ok('zzRgP 路径段在尾部 /uuid8/rg-JP 命中', zz.zzRgP(U('/351c9981/rg-JP')) === 'JP');
+  ok('zzRgP 无路径段时回落查询 rg=', zz.zzRgP(U('/', 'ed=2048&rg=GB')) === 'GB');
+  ok('zzRgP 路径段优先于查询', zz.zzRgP(U('/rg-DE/', 'rg=US')) === 'DE');
+  ok('zzRgP 转义查询 %3F 不误命中', zz.zzRgP(U('/%3Fed=2048&rg=DE')) === '');
+  ok('zzRgP 非法段忽略', zz.zzRgP(U('/rg-D3/')) === '' && zz.zzRgP(U('/rg-DEU/')) === '');
 
   const DEPX = [{ domain: 'px-de.example', port: 443, regionCode: 'DE' }];
   const FRPX = [{ domain: 'px-fr.example', port: 443, regionCode: 'FR' }];
   const byRegion = region => region === 'DE' ? DEPX : region === 'FR' ? FRPX : PX;
   const keArgs = (host, gr) => [1, host, 443, new Uint8Array(0), {}, null, freshState(), '', '', null, null, null, gr];
 
-  // (a)+(c) Ke auto + rg=DE：候选来自 DE 池，且先于直连
-  let sc = makeScope2('auto', new Map([['t.example', 'ok'], ['px-de.example', 'ok'], ['px1.example', 'ok']]), byRegion);
+  // 新口径（2026-10-26 晚修正）：rg 只决定「降级时用哪国 ProxyIP 池」，顺序仍是
+  // 直连优先——公共 ProxyIP 中继只对 CF 托管目标透明转发，池优先会打碎非 CF
+  // 目标的 TLS（实测 ifconfig.me 证书错配 / google 握手失败），故废弃池优先。
+  // Ke auto + rg=DE + 直连成功：走直连，不碰池
+  let sc = makeScope2('auto', new Map([['t.example', 'ok'], ['px-de.example', 'ok']]), byRegion);
   await sc.Ke(...keArgs('t.example', 'DE'));
-  ok('Ke rg=DE 候选地区入参恒为 DE', sc.celCalls.length >= 1 && sc.celCalls.every(r => r === 'DE'));
-  ok('Ke rg=DE ProxyIP 优先于直连', sc.calls[0] === 'px-de.example' && !sc.calls.includes('t.example'));
-  ok('Ke rg=DE 计数 rgUsed=1/rgFallback=0/fallback=1', sc.zzS().rgUsed === 1
-    && sc.zzS().rgFallback === 0 && sc.zzS().fallback === 1);
+  ok('Ke rg=DE 直连成功走直连（不碰池）', sc.calls[0] === 't.example' && !sc.calls.includes('px-de.example')
+    && sc.zzS().direct === 1 && sc.zzS().fallback === 0);
+  ok('Ke rg=DE 直连计数 rgUsed=1/rgFallback=1', sc.zzS().rgUsed === 1 && sc.zzS().rgFallback === 1);
 
-  // Ke rg 池全败 → fail-over 直连
-  sc = makeScope2('auto', new Map([['t.example', 'ok'], ['px-de.example', 'fail']]), byRegion);
+  // Ke auto + rg=DE + 直连失败：降级池必须是 DE 池
+  sc = makeScope2('auto', new Map([['t.example', 'fail'], ['px-de.example', 'ok'], ['px1.example', 'ok']]), byRegion);
   await sc.Ke(...keArgs('t.example', 'DE'));
-  ok('Ke rg 池败走直连 rgFallback=1/direct=1', sc.zzS().direct === 1
-    && sc.zzS().rgFallback === 1 && sc.zzS().rgUsed === 1);
+  ok('Ke rg=DE 降级候选地区入参恒为 DE', sc.celCalls.length >= 1 && sc.celCalls.every(r => r === 'DE'));
+  ok('Ke rg=DE 降级走 DE 池成功', sc.zzS().fallback === 1 && sc.calls.includes('px-de.example')
+    && sc.zzS().rgFallback === 0);
 
-  // Ke Eg=direct + rg：rg 指令优先于 direct 偏好，仍走池
-  sc = makeScope2('direct', new Map([['t.example', 'ok'], ['px-de.example', 'ok']]), byRegion);
+  // Ke Eg=direct + rg：rg 不再绕过 direct 禁令（只认直连）
+  sc = makeScope2('direct', new Map([['t.example', 'fail'], ['px-de.example', 'ok']]), byRegion);
   await sc.Ke(...keArgs('t.example', 'DE'));
-  ok('Ke direct+rg 仍先试池且成功', sc.zzS().fallback === 1 && !sc.calls.includes('t.example'));
-  sc = makeScope2('direct', new Map([['t.example', 'ok'], ['px-de.example', 'fail']]), byRegion);
-  await sc.Ke(...keArgs('t.example', 'DE'));
-  ok('Ke direct+rg 池败后直连 fail-over', sc.zzS().direct === 1 && sc.zzS().rgFallback === 1);
+  ok('Ke direct+rg 直连失败即放弃（不试池）', !sc.calls.includes('px-de.example') && sc.zzS().failed === 1);
 
-  // Ke 并发不串扰：同 scope 两个不同 rg 连接，各自地区/池
-  sc = makeScope2('auto', new Map([['px-de.example', 'ok'], ['px-fr.example', 'ok']]), byRegion);
+  // Ke 并发不串扰：两个 rg 连接直连皆败，各自降级到本国池
+  sc = makeScope2('auto', new Map([['a.example', 'fail'], ['b.example', 'fail'], ['px-de.example', 'ok'], ['px-fr.example', 'ok']]), byRegion);
   await Promise.all([sc.Ke(...keArgs('a.example', 'DE')), sc.Ke(...keArgs('b.example', 'FR'))]);
   ok('Ke 并发 rg 不串地区', sc.celCalls.includes('DE') && sc.celCalls.includes('FR')
     && sc.zzS().rgUsed === 2 && sc.zzS().fallback === 2);
 
-  // (a)+(c) Hn auto + rg=DE
+  // Hn auto + rg=DE + 直连成功：走直连
   sc = makeScope2('auto', new Map([['t.example', 'ok'], ['px-de.example', 'ok']]), byRegion);
   const hr = await sc.Hn({ hostname: 't.example', port: 443 }, null, 'DE');
-  ok('Hn rg=DE 候选来自 DE 池且池优先于直连', !!hr && hr.ye === true
-    && sc.celCalls[0] === 'DE' && sc.calls[0] === 'px-de.example' && !sc.calls.includes('t.example'));
-  ok('Hn rg 计数 rgUsed=1/rgFallback=0', sc.zzS().rgUsed === 1 && sc.zzS().rgFallback === 0
-    && sc.zzS().fallback === 1);
+  ok('Hn rg=DE 直连成功走直连', !!hr && hr.ye === true && sc.zzS().direct === 1
+    && !sc.calls.includes('px-de.example'));
+  ok('Hn rg 计数 rgUsed=1/rgFallback=1', sc.zzS().rgUsed === 1 && sc.zzS().rgFallback === 1);
 
-  // Hn rg 池败 → 直连 fail-over
-  sc = makeScope2('auto', new Map([['t.example', 'ok'], ['px-de.example', 'fail']]), byRegion);
+  // Hn auto + rg=DE + 直连失败：降级 DE 池
+  sc = makeScope2('auto', new Map([['t.example', 'fail'], ['px-de.example', 'ok']]), byRegion);
   const hr2 = await sc.Hn({ hostname: 't.example', port: 443 }, null, 'DE');
-  ok('Hn rg 池败走直连 rgFallback=1', !!hr2 && sc.zzS().direct === 1 && sc.zzS().rgFallback === 1);
+  ok('Hn rg=DE 降级走 DE 池', !!hr2 && sc.zzS().fallback === 1
+    && sc.celCalls.length >= 1 && sc.celCalls.every(r => r === 'DE') && sc.zzS().rgFallback === 0);
 
-  // Hn Eg=direct + rg：不抛 proxyip-disabled，走池
+  // Hn Eg=direct + rg：不再绕令，直连失败返回 null
   sc = makeScope2('direct', new Map([['t.example', 'fail'], ['px-de.example', 'ok']]), byRegion);
   const hr3 = await sc.Hn({ hostname: 't.example', port: 443 }, null, 'DE');
-  ok('Hn direct+rg 走池成功（绕过 direct 禁令）', !!hr3 && sc.zzS().fallback === 1);
+  ok('Hn direct+rg 直连失败返回 null（不试池）', hr3 === null && !sc.calls.includes('px-de.example'));
 
   // Hn 无 rg 时 rg 计数保持零（行为不变旁证）
   sc = makeScope2('auto', new Map([['t.example', 'fail'], ['px1.example', 'ok']]), PX);
