@@ -68,6 +68,10 @@ console.log('A. /stats 路由与配置联动');
   ok('配置读回 countryViaProxy/countryEntryDomain', cfg2.countryViaProxy === 'yes'
     && cfg2.countryEntryDomain === 'entry.example'
     && cfg2.countryNodes === 'no' && typeof cfg2.countryRegions === 'string');
+  ok('保存 ur 四键成功（UR 住宅节点字段已注册）', (await post({ urEnabled: 'yes', urUuid: uuid, urDeHost: 'urde.brodydung.eu.org', urCaHost: 'urca.brodydung.eu.org' })).status === 200);
+  const cfg3 = await (await get('/' + uuid + '/api/config')).json();
+  ok('配置读回 ur 四键', cfg3.urEnabled === 'yes' && cfg3.urUuid === uuid
+    && cfg3.urDeHost === 'urde.brodydung.eu.org' && cfg3.urCaHost === 'urca.brodydung.eu.org');
   ok('未注册键仍被整表拒绝 400', (await post({ zzzUnknownKey: '1' })).status === 400);
 }
 
