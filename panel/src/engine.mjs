@@ -1445,6 +1445,18 @@ async function 处理订阅请求(请求507, 用户506, 网址505 = null) {
     }
     return 地址;
   }
+  // UR 住宅节点解析优先：两个隧道主机名在本轮最先解析、先占共享 DoH 预算。
+  // 此前 UR 块在渲染尾部才解析，而预设优选域名桶与 rg 域名（约 52 个、Workers
+  // 出口每个常需 3–4 次尝试）先行把单轮预算（24）耗尽，UR 节点每轮静默回退
+  // 域名形态。关闭或 urUuid 为空时不预解析、不花任何预算（输出逐字不变）；
+  // 结果存图供尾部 UR 追加块取用，sni/host 仍为隧道主机名、失败仍回退域名。
+  const UR预解析地址 = new Map();
+  if (UR住宅节点已开启 && UR住宅标识) {
+    for (const 隧道主机 of [UR德国主机, UR加拿大主机]) {
+      if (!隧道主机 || UR预解析地址.has(隧道主机)) continue;
+      UR预解析地址.set(隧道主机, await 解析域名服务器地址(隧道主机));
+    }
+  }
   const 是否有自定义优选 = 自定义优选地址列表.length > 0 || 自定义优选域名列表.length > 0;
   if (禁用优选) {} else if (是否有自定义优选) {
     if (自定义优选地址列表.length > 0 && 启用优选地址) {
@@ -1539,13 +1551,18 @@ async function 处理订阅请求(请求507, 用户506, 网址505 = null) {
     }
   }
   // CFDirect UR 住宅节点：开启且 urUuid 非空时，在最终链接列表尾部追加德国/加拿大
-  // 两条固定 vless 链接（隧道主机名作 server/sni/host、443、WS path /ws、独立
-  // urUuid）——与国家节点同走最终链接列表一条路，clash/sing-box/base64 及各
-  // 代理分组自动纳入；server 恒为域名形态（隧道按 SNI/Host 路由，不参与方案 A
-  // 的域名解析改写）。关闭或 urUuid 为空时不追加，输出与此前逐字一致。
+  // 两条固定 vless 链接（443、WS path /ws、独立 urUuid）——与国家节点同走最终
+  // 链接列表一条路，clash/sing-box/base64 及各代理分组自动纳入。server 同走
+  // 方案 A 改写（与优选域名桶共用 解析域名服务器地址：DoH + SESSION_KV 解析图）：
+  // 隧道靠 SNI/Host 路由、主机名活在 sni 与 WS Host 两个参数里，拨号改走解析出
+  // 的 CF Anycast IP 已外部实测可通（2026-10-28）；sni/host 恒为隧道主机名逐字
+  // 不变，解析失败一律回退域名形态。解析在本轮开头优先完成（UR预解析地址，
+  // 先于预选域名桶/rg 占用共享预算），此处只取预解析结果。关闭或 urUuid 为
+  // 空时不追加，输出与此前逐字一致。
   if (UR住宅节点已开启 && UR住宅标识) {
     for (const [隧道主机, 住宅名称] of [[UR德国主机, '🇩🇪 德国住宅-UR'], [UR加拿大主机, '🇨🇦 加拿大住宅-UR']]) {
       if (!隧道主机) continue;
+      const 住宅服务地址 = UR预解析地址.get(隧道主机) ?? await 解析域名服务器地址(隧道主机);
       const 住宅参数 = new URLSearchParams({
         encryption: 'none',
         security: 'tls',
@@ -1555,7 +1572,7 @@ async function 处理订阅请求(请求507, 用户506, 网址505 = null) {
         host: 隧道主机,
         path: '/ws'
       });
-      最终链接列表.push(`${atob('dmxlc3M=')}://${UR住宅标识}@${隧道主机}:443?${住宅参数.toString()}#${encodeURIComponent(住宅名称)}`);
+      最终链接列表.push(`${atob('dmxlc3M=')}://${UR住宅标识}@${住宅服务地址}:443?${住宅参数.toString()}#${encodeURIComponent(住宅名称)}`);
     }
   }
   if (最终链接列表.length === 0) {
