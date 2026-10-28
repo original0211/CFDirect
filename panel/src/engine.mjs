@@ -64,6 +64,14 @@ let 启用优选域名 = true;
 
 let 国家节点已开启 = false;
 
+let UR住宅节点已开启 = false;
+
+let UR住宅标识 = '';
+
+let UR德国主机 = '';
+
+let UR加拿大主机 = '';
+
 let 启用优选地址 = true;
 
 let 启用仓库优选 = true;
@@ -87,6 +95,9 @@ const supportsCountryNodes = Object.hasOwn(config, 'countryNodes');
 // CFDirect 国家节点 via-proxy 模式：同 countryNodes 先例，内核 F 表没有这两键时
 // 控制台禁用控件并提示升级（面板保存会被旧内核整表拒绝）。
 const supportsCountryViaProxy = Object.hasOwn(config, 'countryViaProxy');
+// CFDirect UR 住宅节点：同 countryNodes 先例，内核 F 表没有 ur 键时
+// 控制台禁用控件并提示升级（面板保存会被旧内核整表拒绝）。
+const supportsUrNodes = Object.hasOwn(config, 'urEnabled');
 const 配置默认值 = {
   freeCpu: 'no',
   eg: 'auto',
@@ -139,6 +150,10 @@ const 配置默认值 = {
   countryPerRegion: '8',
   countryViaProxy: 'no',
   countryEntryDomain: 'saas.sin.fan',
+  urEnabled: 'no',
+  urUuid: '',
+  urDeHost: 'urde.brodydung.eu.org',
+  urCaHost: 'urca.brodydung.eu.org',
   subMode: 'worker',
   warpConf: '',
   warpEps: '',
@@ -187,7 +202,7 @@ function 整理有效配置(配置) {
     ...配置默认值,
     ...配置
   };
-  ['freeCpu', 'ev', 'et', 'ex', 'ech', 'ena', 'epd', 'epi', 'egi', 'ipv4', 'ipv6', 'ispMobile', 'ispUnicom', 'ispTelecom', 'jk', 'optimizerAuto', 'optimizerCustomPref', 'optimizerUseCidr', 'countryNodes', 'countryViaProxy'].forEach(键 => {
+  ['freeCpu', 'ev', 'et', 'ex', 'ech', 'ena', 'epd', 'epi', 'egi', 'ipv4', 'ipv6', 'ispMobile', 'ispUnicom', 'ispTelecom', 'jk', 'optimizerAuto', 'optimizerCustomPref', 'optimizerUseCidr', 'countryNodes', 'countryViaProxy', 'urEnabled'].forEach(键 => {
     快照[键] = 归一配置开关(快照[键], 是否开启值(配置默认值[键]));
   });
   const 出口值 = String(快照.eg ?? '').trim().toLowerCase();
@@ -270,6 +285,10 @@ function 获取环境配置快照(环境值 = {}) {
     countryPerRegion: ['countryPerRegion', 'COUNTRYPERREGION', 'COUNTRY_PER_REGION'],
     countryViaProxy: ['countryViaProxy', 'COUNTRYVIAPROXY', 'COUNTRY_VIA_PROXY'],
     countryEntryDomain: ['countryEntryDomain', 'COUNTRYENTRYDOMAIN', 'COUNTRY_ENTRY_DOMAIN'],
+    urEnabled: ['urEnabled', 'URENABLED', 'UR_ENABLED'],
+    urUuid: ['urUuid', 'URUUID', 'UR_UUID'],
+    urDeHost: ['urDeHost', 'URDEHOST', 'UR_DE_HOST'],
+    urCaHost: ['urCaHost', 'URCAHOST', 'UR_CA_HOST'],
     subMode: ['subMode', 'SUB_MODE'],
     warpConf: ['warpConf', 'WARP_CONF'],
     warpEps: ['warpEps', 'WARP_EPS'],
@@ -1519,6 +1538,26 @@ async function 处理订阅请求(请求507, 用户506, 网址505 = null) {
       }
     }
   }
+  // CFDirect UR 住宅节点：开启且 urUuid 非空时，在最终链接列表尾部追加德国/加拿大
+  // 两条固定 vless 链接（隧道主机名作 server/sni/host、443、WS path /ws、独立
+  // urUuid）——与国家节点同走最终链接列表一条路，clash/sing-box/base64 及各
+  // 代理分组自动纳入；server 恒为域名形态（隧道按 SNI/Host 路由，不参与方案 A
+  // 的域名解析改写）。关闭或 urUuid 为空时不追加，输出与此前逐字一致。
+  if (UR住宅节点已开启 && UR住宅标识) {
+    for (const [隧道主机, 住宅名称] of [[UR德国主机, '🇩🇪 德国住宅-UR'], [UR加拿大主机, '🇨🇦 加拿大住宅-UR']]) {
+      if (!隧道主机) continue;
+      const 住宅参数 = new URLSearchParams({
+        encryption: 'none',
+        security: 'tls',
+        sni: 隧道主机,
+        fp: 'chrome',
+        type: 'ws',
+        host: 隧道主机,
+        path: '/ws'
+      });
+      最终链接列表.push(`${atob('dmxlc3M=')}://${UR住宅标识}@${隧道主机}:443?${住宅参数.toString()}#${encodeURIComponent(住宅名称)}`);
+    }
+  }
   if (最终链接列表.length === 0) {
     const 错误备注 = "所有节点获取失败";
     const 协议484 = atob('dmxlc3M=');
@@ -1945,6 +1984,13 @@ async function 处理订阅值(请求241, 用户240 = null) {
       countryViaProxyEnable: '经 ProxyIP 出口（快入口模式）',
       countryEntryDomainLabel: '统一入口域名',
       countryViaProxyHint: '开启后国家节点分两路：内核 ProxyIP 池覆盖的 10 国（香港、日本、韩国、新加坡、美国、德国、英国、荷兰、瑞典、芬兰）入口统一用该优选域名（Anycast 就近接入，快而稳），国家由出口侧 ProxyIP 按节点地区实现，每区一条；其余国家内核池里没有对应出口，仍走海外反代 IP 池（按「每地区节点数」生成）。手填优选也可写「名称@地区码」（如 名称@DE），让单个节点走指定国家出口。',
+      urNodesTitle: 'UR 住宅节点 (urEnabled)',
+      urNodesEnable: '启用 UR 住宅节点',
+      urUuidLabel: '隧道 UUID（urUuid）',
+      urDeHostLabel: '德国隧道主机名（urDeHost）',
+      urCaHostLabel: '加拿大隧道主机名（urCaHost）',
+      urNodesHint: '开启后订阅尾部固定追加两条住宅节点：德国/加拿大各一，入口为对应隧道主机名（VLESS + WS + TLS、路径 /ws），UUID 与订阅 UUID 相互独立；隧道主机名默认 urde/urca.brodydung.eu.org，一般无需改动。',
+      urNodesUnsupported: '当前内核不支持 UR 住宅节点字段，请先更新配套内核。',
       latencyTestHint: '检测可用性；延迟按面板服务器位置测得。',
       optFilterTitle: '优选IP筛选设置',
       optIpVersion: 'IP版本选择',
@@ -2144,6 +2190,13 @@ en: {
       countryViaProxyEnable: 'Exit via ProxyIP (fast entry mode)',
       countryEntryDomainLabel: 'Shared entry domain',
       countryViaProxyHint: 'When on, country nodes split two ways: the 10 countries covered by the core ProxyIP pool (HK, JP, KR, SG, US, DE, GB, NL, SE, FI) enter through this preferred domain (Anycast, nearest PoP, fast and stable) with the country provided by the egress ProxyIP of each region, one node per region; all other countries have no matching egress in the core pool and keep using the overseas reverse-proxy IP pool (Nodes per region applies). Manual preferred entries can also use "name@RG" (e.g. name@DE) to exit via a specific country.',
+      urNodesTitle: 'UR residential nodes (urEnabled)',
+      urNodesEnable: 'Enable UR residential nodes',
+      urUuidLabel: 'Tunnel UUID (urUuid)',
+      urDeHostLabel: 'Germany tunnel host (urDeHost)',
+      urCaHostLabel: 'Canada tunnel host (urCaHost)',
+      urNodesHint: 'When enabled, every subscription gains two fixed residential nodes at the end: one for Germany and one for Canada, entering via their tunnel hosts (VLESS + WS + TLS, path /ws) with a UUID independent of the subscription UUID. Tunnel hosts default to urde/urca.brodydung.eu.org and rarely need changing.',
+      urNodesUnsupported: 'The current core does not support the UR residential-node fields. Please update the matching core first.',
       latencyTestHint: 'Checks availability; latency is measured from the panel server location.',
       optFilterTitle: 'Preferred IP Filter Settings',
       optIpVersion: 'IP Version',
@@ -2564,6 +2617,30 @@ en: {
                                 </div>
                                     <small id="countryViaProxyHint" style="color: #7aa9c4; font-size: 0.85rem; display: block; margin-top: 10px;">${supportsCountryViaProxy ? 翻译值.countryViaProxyHint : 翻译值.countryNodesUnsupported}</small>
                                     <small id="countryNodesHint" style="color: #7aa9c4; font-size: 0.85rem; display: block; margin-top: 10px;">${supportsCountryNodes ? 翻译值.countryNodesHint : 翻译值.countryNodesUnsupported}</small>
+                            </div>
+                        </div>
+                        <div style="margin-bottom: 15px;" id="urSection">
+                                <label style="display: block; margin-bottom: 8px; color: #00f0ff; font-weight: bold; text-shadow: 0 0 3px #00f0ff;">${翻译值.urNodesTitle}</label>
+                            <div style="padding: 15px; background: rgba(15, 3, 40, 0.6); border: 1px solid #00f0ff; border-radius: 5px;">
+                                <div style="margin-bottom: 10px;">
+                                    <label style="display: inline-flex; align-items: center; cursor: pointer; color: #00f0ff;">
+                                        <input type="checkbox" id="urEnabled" aria-describedby="urNodesHint" ${supportsUrNodes ? '' : 'disabled'} style="margin-right: 8px; width: 18px; height: 18px; cursor: pointer;">
+                                            <span style="font-size: 1.1rem;">${翻译值.urNodesEnable}</span>
+                                    </label>
+                                </div>
+                                <div style="margin-bottom: 10px;">
+                                    <label style="display: block; margin-bottom: 8px; color: #00f0ff; font-size: 0.95rem;">${翻译值.urUuidLabel}</label>
+                                    <input type="text" id="urUuid" aria-describedby="urNodesHint" ${supportsUrNodes ? '' : 'disabled'} placeholder="00000000-0000-0000-0000-000000000000" style="width: 100%; padding: 10px; background: rgba(0, 0, 0, 0.8); border: 1px solid #00f0ff; color: #00f0ff; font-family: 'Courier New', monospace; font-size: 13px;">
+                                </div>
+                                <div style="margin-bottom: 10px;">
+                                    <label style="display: block; margin-bottom: 8px; color: #00f0ff; font-size: 0.95rem;">${翻译值.urDeHostLabel}</label>
+                                    <input type="text" id="urDeHost" aria-describedby="urNodesHint" ${supportsUrNodes ? '' : 'disabled'} placeholder="urde.brodydung.eu.org" style="width: 100%; padding: 10px; background: rgba(0, 0, 0, 0.8); border: 1px solid #00f0ff; color: #00f0ff; font-family: 'Courier New', monospace; font-size: 13px;">
+                                </div>
+                                <div style="margin-bottom: 10px;">
+                                    <label style="display: block; margin-bottom: 8px; color: #00f0ff; font-size: 0.95rem;">${翻译值.urCaHostLabel}</label>
+                                    <input type="text" id="urCaHost" aria-describedby="urNodesHint" ${supportsUrNodes ? '' : 'disabled'} placeholder="urca.brodydung.eu.org" style="width: 100%; padding: 10px; background: rgba(0, 0, 0, 0.8); border: 1px solid #00f0ff; color: #00f0ff; font-family: 'Courier New', monospace; font-size: 13px;">
+                                </div>
+                                    <small id="urNodesHint" style="color: #7aa9c4; font-size: 0.85rem; display: block; margin-top: 10px;">${supportsUrNodes ? 翻译值.urNodesHint : 翻译值.urNodesUnsupported}</small>
                             </div>
                         </div>
 
@@ -3540,6 +3617,10 @@ function 应用配置到界面(配置) {
   写入字段值('countryPerRegion', 配置.countryPerRegion);
   写入开关值('countryViaProxy', 配置.countryViaProxy, false);
   写入字段值('countryEntryDomain', 配置.countryEntryDomain);
+  写入开关值('urEnabled', 配置.urEnabled, false);
+  写入字段值('urUuid', 配置.urUuid);
+  写入字段值('urDeHost', 配置.urDeHost);
+  写入字段值('urCaHost', 配置.urCaHost);
   写入字段值('socksConfig', 配置.s);
   写入字段值('customHomepage', 配置.homepage);
   写入字段值('apiEnabled', 配置.ae);
@@ -3573,6 +3654,10 @@ function 收集界面配置() {
     countryPerRegion: 读取字段值('countryPerRegion'),
     countryViaProxy: 读取开关值('countryViaProxy', false),
     countryEntryDomain: 读取字段值('countryEntryDomain'),
+    urEnabled: 读取开关值('urEnabled', false),
+    urUuid: 读取字段值('urUuid'),
+    urDeHost: 读取字段值('urDeHost'),
+    urCaHost: 读取字段值('urCaHost'),
     s: 读取字段值('socksConfig'),
     homepage: 读取字段值('customHomepage'),
     scu: 读取字段值('scu'),
@@ -3598,6 +3683,7 @@ function 收集界面配置() {
   if (document.getElementById('cpuGuard')?.disabled) delete 配置.cpuGuard;
   if (document.getElementById('countryNodes')?.disabled) { delete 配置.countryNodes; delete 配置.countryRegions; delete 配置.countryPerRegion; }
   if (document.getElementById('countryViaProxy')?.disabled) { delete 配置.countryViaProxy; delete 配置.countryEntryDomain; }
+  if (document.getElementById('urEnabled')?.disabled) { delete 配置.urEnabled; delete 配置.urUuid; delete 配置.urDeHost; delete 配置.urCaHost; }
   if (配置.ev === 'no' && 配置.et === 'no' && 配置.ex === 'no') {
     配置.ev = 'yes';
     写入开关值('ev', 'yes', true);
@@ -3743,6 +3829,7 @@ async function 重置全部配置() {
           ...(document.getElementById('cpuGuard')?.disabled ? {} : { cpuGuard: '' }),
           ...(document.getElementById('countryNodes')?.disabled ? {} : { countryNodes: '', countryRegions: '', countryPerRegion: '' }),
           ...(document.getElementById('countryViaProxy')?.disabled ? {} : { countryViaProxy: '', countryEntryDomain: '' }),
+          ...(document.getElementById('urEnabled')?.disabled ? {} : { urEnabled: '', urUuid: '', urDeHost: '', urCaHost: '' }),
           wk: '',
           d: '',
           p: '',
@@ -5300,6 +5387,10 @@ function 更新配置值() {
   订阅转换接口 = 有效配置.scu || 配置默认值.scu;
   启用优选域名 = 有效配置.epd === 'yes';
   国家节点已开启 = 有效配置.countryNodes === 'yes';
+  UR住宅节点已开启 = 有效配置.urEnabled === 'yes';
+  UR住宅标识 = String(有效配置.urUuid || '').trim();
+  UR德国主机 = String(有效配置.urDeHost || '').trim().toLowerCase();
+  UR加拿大主机 = String(有效配置.urCaHost || '').trim().toLowerCase();
   启用优选地址 = 有效配置.epi === 'yes';
   启用仓库优选 = 有效配置.egi === 'yes';
   启用原生地址 = 有效配置.ena === 'yes';
