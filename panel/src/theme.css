@@ -723,6 +723,24 @@
                 border-bottom-color: var(--cd-muted) !important;
             }
 
+            /* Subscription QR: ink modules on the paper, no frame, no
+               accent colour — the code rests in open space under the
+               generated-link row. Colours are applied by CSS over the
+               generator's black-on-white SVG (path = modules, rect =
+               ground), so the vendored library stays untouched. */
+            .cd-qr { margin-top: 34px; }
+            .cd-qr-code { width: 136px; height: 136px; }
+            .cd-qr-code svg { display: block; width: 136px; height: 136px; }
+            .cd-qr-code svg rect { fill: var(--cd-bg); }
+            .cd-qr-code svg path { fill: var(--cd-ink); }
+            .cd-qr-caption {
+                margin: 12px 0 0;
+                font-size: 11px;
+                font-weight: 400;
+                letter-spacing: 0.16em;
+                color: var(--cd-muted);
+            }
+
             /* ================= Status readouts ================= */
             #systemStatus {
                 background: transparent !important;
@@ -1173,6 +1191,101 @@
               #deleteNode { font-size: .78rem !important; padding: 10px !important; }
             }
             @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+            /* ================= Mobile (≤760px) =================
+               The desktop sheet re-composed for a narrow column: the
+               side navigation becomes a quiet horizontal text strip
+               under the top bar (wrapping to two lines when needed),
+               sections breathe at ~40px instead of 76px with ~20px
+               side air, dashboard numbers collapse to two small
+               columns, key/value rows stack instead of squeezing,
+               long strings wrap instead of clipping, and every tap
+               target is at least 40px tall. No new colours — the
+               vermilion dot still marks only the current nav item.
+               Desktop rules above are untouched; everything here is
+               scoped to this media query. */
+            @media (max-width: 760px) {
+                /* Navigation: text-only strip, current item keeps
+                   its vermilion dot. */
+                .cd-sidenav {
+                    display: flex;
+                    flex-direction: row;
+                    flex-wrap: wrap;
+                    gap: 2px 20px;
+                    position: static;
+                    width: auto;
+                    padding: 14px 20px 4px;
+                    background: var(--cd-bg);
+                }
+                .cd-nav-link {
+                    display: inline-flex;
+                    align-items: center;
+                    min-height: 40px;
+                    padding: 8px 10px 8px 24px;
+                }
+                .cd-nav-link::before { left: 6px; }
+
+                /* Content column: ~20px side air, ~40px rhythm. */
+                .container { padding: 0 20px 110px; }
+                .cd-subbar { padding: 0 20px; }
+                .header { padding-top: 40px; }
+                body:not(.landing) .card { margin-top: 40px; }
+                body:not(.landing) .card > .card-title { margin-bottom: 26px; }
+                .card form > div { margin-bottom: 24px !important; }
+                .cd-footer { margin-top: 48px; }
+
+                /* Dashboard: two small columns; key/value rows and
+                   reason rows stack instead of squeezing. */
+                .cd-dash-grid { grid-template-columns: 1fr 1fr; gap: 26px 22px; }
+                .cd-dash-num { font-size: 14px; }
+                .cd-dash-row {
+                    flex-direction: column;
+                    align-items: flex-start;
+                    gap: 1px;
+                    padding: 8px 0;
+                }
+                .cd-dash-wide { margin-top: 30px; }
+                .cd-dash-reason { flex-wrap: wrap; }
+                .cd-dash-reason .cd-dash-label { flex: 1 1 100%; }
+                .cd-dash-reason .cd-dash-num { flex: 0 0 auto; }
+
+                /* Long strings wrap; nothing clips sideways. */
+                #clientSubscriptionUrl,
+                .subscription-url {
+                    white-space: normal;
+                    overflow: visible !important;
+                    text-overflow: clip;
+                    overflow-wrap: anywhere;
+                    word-break: break-all;
+                }
+                #currentConfig, pre, code { overflow-wrap: anywhere; }
+                pre { overflow-x: auto; }
+                img, svg, table { max-width: 100%; }
+
+                /* Forms: controls take the full column; inputs read
+                   at 16px so iOS does not zoom on focus. */
+                .card input[type="text"], .card input[type="number"],
+                .card input[type="password"], .card select, .card textarea {
+                    width: 100%;
+                    max-width: 100%;
+                }
+                input[type="text"], input[type="number"], input[type="password"],
+                select, textarea {
+                    font-size: 16px !important;
+                }
+
+                /* Tap targets: at least 40px tall. */
+                button, input[type="submit"] { min-height: 40px; }
+                .client-btn { min-height: 48px; }
+                .cd-copy-btn {
+                    display: inline-flex;
+                    align-items: center;
+                    min-height: 40px;
+                }
+                .cp-action-btn { min-height: 40px; }
+                #languageSelector { min-height: 40px; }
+                .card a { padding: 8px 0; }
+            }
 
             /* ------------------------------------------------------------------
                Engine inline-style colour mapping.
