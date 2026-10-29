@@ -12,7 +12,7 @@ await mkdir(join(destination, 'data'));
 await mkdir(join(destination, 'public'));
 await writeFile(join(destination, 'public/.gitkeep'), '');
 
-const assets = ['index.html', 'bridge.js', 'theme.css', 'singbox-rules.json.gz', 'singbox-rules.LICENSE', 'singbox-rules.NOTICE.md'];
+const assets = ['index.html', 'bridge.js', 'qrcode.js', 'theme.css', 'singbox-rules.json.gz', 'singbox-rules.LICENSE', 'singbox-rules.NOTICE.md'];
 await build({
   entryPoints: [join(panel, 'api/index.mjs')],
   outfile: join(destination, 'api/index.mjs'),
