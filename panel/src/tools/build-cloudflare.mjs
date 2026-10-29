@@ -29,6 +29,7 @@ const assets = {
   theme: await textAsset('theme.css'),
   landing: await textAsset('index.html'),
   bridge: await textAsset('bridge.js'),
+  qrcode: await textAsset('qrcode.js'),
   rulesLicense: (await textAsset('singbox-rules.NOTICE.md')) + '\n' + (await textAsset('singbox-rules.LICENSE')),
 };
 const rulesGzBase64 = (await readFile(join(srcRoot, 'singbox-rules.json.gz'))).toString('base64');
