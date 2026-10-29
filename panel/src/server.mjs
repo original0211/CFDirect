@@ -26,6 +26,9 @@ const theme = '<style>' + (embeddedAssets?.theme ?? await readFile(new URL('./th
 const landingSource = embeddedAssets?.landing ?? await readFile(new URL('./index.html', import.meta.url), 'utf8');
 const landing = landingSource.replace('__CFNEW_PANEL_VERSION__', PANEL_VERSION).replace('</head>', theme + '</head>');
 const bridge = embeddedAssets?.bridge ?? await readFile(new URL('./bridge.js', import.meta.url), 'utf8');
+// 订阅二维码生成库（vendored qrcode-generator 1.4.4，Kazuhiko Arase，MIT）：
+// 只注入控制台页，订阅链接在浏览器本地编码，不经过任何外部服务。
+const qrcodeScript = '<script>' + (embeddedAssets?.qrcode ?? await readFile(new URL('./qrcode.js', import.meta.url), 'utf8')) + '</script>';
 const rulesLicense = embeddedAssets?.rulesLicense ?? (await readFile(new URL('./singbox-rules.NOTICE.md', import.meta.url), 'utf8') + '\n' + await readFile(new URL('./singbox-rules.LICENSE', import.meta.url), 'utf8'));
 const safeJson = value => JSON.stringify(value).replaceAll('<', '\\u003c');
 const preferredAuth = new Map();
@@ -461,7 +464,9 @@ export async function handlePanel(request) {
     const context = { host: workerBase, uuid, apiBase: boundWorker ? '/' + uuid : '/worker-api/' + Buffer.from(workerBase).toString('base64url') + '/' + uuid, subPath: boundWorker ? '/' + uuid + '/sub' : '/sub?' + subParams, ...(boundWorker ? { panelPath: '/' + uuid } : {}), config, release: coreRelease(config) };
     const boot = '<script>window.CFNEW=' + safeJson(context) + ';window.CFNEW.subUrl=location.origin+window.CFNEW.subPath;' + bridge + '</script>';
     let html = await rendered.text();
-    html = html.replace('<head>', '<head>' + boot + theme);
+    // 函数式 replacer：注入内容含库源码，其中 '$ 等序列在字符串替换串里
+    // 会被当作特殊模式展开，必须逐字替换。
+    html = html.replace('<head>', () => '<head>' + boot + qrcodeScript + theme);
     return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
   } catch (error) {
     if (subscription) return new Response(pickLang(lang, '订阅更新失败：', 'Subscription update failed: ') + error.message, { status: error.status || 503 });
