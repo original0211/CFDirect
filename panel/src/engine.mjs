@@ -5188,6 +5188,45 @@ document.addEventListener('DOMContentLoaded', function () {
 
 });
 </script>
+<script>
+// CFDirect「白」主题导航：当前视图以朱红小点标记，切换时目标区块如翻页般淡入。
+// 纯呈现层，不参与任何配置与订阅逻辑。
+(function () {
+    var links = Array.prototype.slice.call(document.querySelectorAll('.cd-nav-link'));
+    if (!links.length) return;
+    var sections = links.map(function (link) { return document.querySelector(link.getAttribute('href')); }).filter(Boolean);
+    function mark(id) {
+        links.forEach(function (link) {
+            link.classList.toggle('cd-current', link.getAttribute('href') === '#' + id);
+        });
+    }
+    function fade(el) {
+        el.classList.remove('cd-fade');
+        void el.offsetWidth;
+        el.classList.add('cd-fade');
+    }
+    links.forEach(function (link) {
+        link.addEventListener('click', function () {
+            var target = document.querySelector(link.getAttribute('href'));
+            if (target) { mark(target.id); fade(target); }
+        });
+    });
+    if ('IntersectionObserver' in window && sections.length) {
+        var ratios = {};
+        var observer = new IntersectionObserver(function (entries) {
+            entries.forEach(function (entry) { ratios[entry.target.id] = entry.intersectionRatio; });
+            var best = null, bestRatio = 0;
+            Object.keys(ratios).forEach(function (id) {
+                if (ratios[id] > bestRatio) { bestRatio = ratios[id]; best = id; }
+            });
+            if (best) mark(best);
+        }, { rootMargin: '-25% 0px -55% 0px', threshold: [0, 0.25, 0.5, 0.75, 1] });
+        sections.forEach(function (section) { observer.observe(section); });
+    } else if (sections.length) {
+        mark(sections[0].id);
+    }
+})();
+</script>
     </body>
     </html>`;
   return new Response(值页面, {
