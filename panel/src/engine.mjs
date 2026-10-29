@@ -2454,6 +2454,10 @@ en: {
                     <div class="subscription-url" id="clientSubscriptionUrl"></div>
                     <button type="button" class="cd-copy-btn" id="cpCopySubUrl">${语言码236 === 'en' ? 'Copy' : '复制'}</button>
                 </div>
+                <div class="cd-qr" id="clientQr" hidden>
+                    <div class="cd-qr-code" id="clientQrCode" aria-hidden="true"></div>
+                    <p class="cd-qr-caption">${语言码236 === 'en' ? 'Scan to import' : '扫码导入'}</p>
+                </div>
             </div>
             <div class="card" id="statusCard">
                     <h2 class="card-title">${翻译值.systemStatus}</h2>
@@ -3076,6 +3080,10 @@ function 显示订阅行(名称) {
   行元素.hidden = false;
   var 名元素 = document.getElementById("clientSubRowName");
   if (名元素 && 名称) 名元素.textContent = 名称;
+  // 二维码与复制按钮同源：取链接行当前文本（生成客户端链接刚写入的完整链接），
+  // 每次切换客户端重建链接时随显示订阅行一并重绘。
+  var 网址元素 = document.getElementById("clientSubscriptionUrl");
+  渲染订阅二维码(网址元素 ? 网址元素.textContent.trim() : '');
 }
 (function () {
   var 复制按钮 = document.getElementById('cpCopySubUrl');
@@ -5187,6 +5195,31 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
 });
+</script>
+<script>
+// 订阅二维码：生成库（vendored qrcode-generator 1.4.4, Kazuhiko Arase, MIT）
+// 由服务端注入为全局 qrcode 工厂；此处只做纯封装——按链接文本生成 SVG
+// 字符串（纠错级别 M、字节模式、版本自动选取），以及把 SVG 放进订阅区的
+// 二维码容器。链接只在本页内编码，不经过任何外部服务。
+function 生成订阅二维码SVG(文本) {
+  if (typeof qrcode !== 'function' || !文本) return '';
+  if (qrcode.stringToBytesFuncs && qrcode.stringToBytesFuncs['UTF-8']) {
+    qrcode.stringToBytes = qrcode.stringToBytesFuncs['UTF-8'];
+  }
+  var 码 = qrcode(0, 'M');
+  码.addData(String(文本), 'Byte');
+  码.make();
+  return 码.createSvgTag({ cellSize: 4, margin: 16, scalable: true });
+}
+function 渲染订阅二维码(文本) {
+  var 容器 = document.getElementById('clientQr');
+  var 码区 = document.getElementById('clientQrCode');
+  if (!容器 || !码区) return;
+  var svg = '';
+  try { svg = 生成订阅二维码SVG(文本); } catch (错误) { svg = ''; }
+  码区.innerHTML = svg;
+  容器.hidden = !svg;
+}
 </script>
 <script>
 // CFDirect「白」主题导航：当前视图以朱红小点标记，切换时目标区块如翻页般淡入。
