@@ -1280,21 +1280,21 @@ async function 生成家宽链式值(链接列表) {
   const 按速度 = 家宽项.map(项 => 项.名称);
   const 按国家 = 家宽项.slice().sort((甲, 乙) => 甲.国家 === 乙.国家 ? 0 : (甲.国家 < 乙.国家 ? -1 : 1)).map(项 => 项.名称);
   const 分组段 = [解码64('cHJveHktZ3JvdXBzOg==')];
-  const 主选列表 = ['      - "' + 家宽自动 + '"', '      - "' + 家宽手选 + '"'];
+  const 主选列表 = [];
   if (前置名称.length) 主选列表.push('      - "' + 前置组名 + '"');
-  主选列表.push('      - DIRECT');
-  // 主组排第一，客户端打开落在它上面；子组随后
+  主选列表.push('      - "' + 家宽自动 + '"', '      - "' + 家宽手选 + '"', '      - DIRECT');
+  // 主组排第一，客户端打开落在它上面；CF直连紧随其后（日常主力路径），家宽两组随后
   分组段.push('  - name: "' + 节点选择 + '"', '    type: select', '    proxies:', 主选列表.join('\n'));
-  // 全量几十个节点，测一轮就是几十次握手，间隔取 600 平衡新鲜与开销、用到才测
-  分组段.push('  - name: "' + 家宽自动 + '"', '    type: fallback',
-    '    url: https://www.gstatic.com/generate_204', '    interval: 600', '    lazy: true',
-    '    proxies:', 列出(按速度));
-  分组段.push('  - name: "' + 家宽手选 + '"', '    type: select', '    proxies:', 列出(按国家));
   if (前置名称.length) {
     分组段.push('  - name: "' + 前置组名 + '"', '    type: url-test',
       '    url: https://www.gstatic.com/generate_204', '    interval: 300', '    tolerance: 50',
       '    proxies:', 列出(前置名称));
   }
+  // 全量几十个节点，测一轮就是几十次握手，间隔取 600 平衡新鲜与开销、用到才测
+  分组段.push('  - name: "' + 家宽自动 + '"', '    type: fallback',
+    '    url: https://www.gstatic.com/generate_204', '    interval: 600', '    lazy: true',
+    '    proxies:', 列出(按速度));
+  分组段.push('  - name: "' + 家宽手选 + '"', '    type: select', '    proxies:', 列出(按国家));
   const 规则段 = [
     'rules:',
     '  - GEOIP,LAN,DIRECT,no-resolve',
