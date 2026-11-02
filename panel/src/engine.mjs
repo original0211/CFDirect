@@ -790,17 +790,19 @@ function 构建值节点行(数量值596) {
 function 生成值值589(链接列表588, 本地值587 = {}) {
   const 节点列表586 = normalizeNodeNames(链接列表588.map(解析值链接).filter(数量值585 => 数量值585 && (数量值585.proto === 解码64('dmxlc3M=') || 数量值585.proto === 解码64('dHJvamFu'))));
   const 名称列表584 = 节点列表586.map(数量值583 => 数量值583.name);
-  // CFDirect 主力组（仅 clash）：rg 地区节点按 path 的 /rg-XX 段结构识别（不靠
-  // 名字匹配），按 HK,JP,KR,SG,US,DE,GB,NL,SE,FI 序取每区首个在场节点，其后
-  // 追加 UR 住宅节点（固定名）。只收本轮实际在场的；rg 与 UR 全缺席时不发
-  // ⭐ 主力组、🚀 节点选择保持逐字不变。
+  // CFDirect 主力组（仅 clash）：首位是钉住的 saas.sin.fan 入口节点（渲染名
+  // 优选域名-01、path 无 /rg- 段，与同入口的 rg 节点靠 path 区分）；其后是 rg
+  // 地区节点（按 path 的 /rg-XX 段结构识别、不靠名字匹配），按
+  // HK,JP,KR,SG,US,DE,GB,NL,SE,FI 序取每区首个在场节点；末尾追加 UR 住宅
+  // 节点（固定名）。只收本轮实际在场的；全缺席时不发 ⭐ 主力组、🚀 节点
+  // 选择保持逐字不变。
   const 主力地区顺序 = ['HK', 'JP', 'KR', 'SG', 'US', 'DE', 'GB', 'NL', 'SE', 'FI'];
   const 主力成员584 = [];
+  const 识别主力地区 = 路径 => /(?:^|\/)rg-([A-Z]{2})(?=\/|\?|$)/.exec(路径 || '')?.[1] || '';
+  const 优选域名首节点 = 节点列表586.find(节点 => 节点.name === '优选域名-01' && !识别主力地区(节点.path));
+  if (优选域名首节点) 主力成员584.push(优选域名首节点.name);
   for (const 地区 of 主力地区顺序) {
-    const 命中节点 = 节点列表586.find(节点 => {
-      const 匹配 = /(?:^|\/)rg-([A-Z]{2})(?=\/|\?|$)/.exec(节点.path || '');
-      return 匹配 && 匹配[1] === 地区;
-    });
+    const 命中节点 = 节点列表586.find(节点 => 识别主力地区(节点.path) === 地区);
     if (命中节点) 主力成员584.push(命中节点.name);
   }
   for (const 住宅节点名 of ['🇩🇪 德国住宅-UR', '🇨🇦 加拿大住宅-UR']) {
@@ -1233,6 +1235,22 @@ async function 生成家宽链式值(链接列表) {
   const 加密前置 = 全部前置.filter(项 => 项.tls);
   const 前置节点 = 加密前置.length ? 加密前置 : 全部前置;
   const 前置名称 = 前置节点.map(项 => 项.name);
+  // CFDirect ⭐ 主力组（vg 与主 clash 同口径）：成员只从本轮实际渲染的前置
+  // 节点里收——首位优选域名-01（path 无 /rg- 段的钉住入口）、其后按
+  // HK,JP,KR,SG,US,DE,GB,NL,SE,FI 序的 rg 节点（path 的 /rg-XX 段结构
+  // 识别）、末尾 UR 住宅节点（固定名）。全缺席时不发组、⚪ 节点选择逐字不变。
+  const 主力组名 = '⭐ 主力';
+  const 主力成员 = [];
+  const 识别主力地区 = 路径 => /(?:^|\/)rg-([A-Z]{2})(?=\/|\?|$)/.exec(路径 || '')?.[1] || '';
+  const 优选域名首节点 = 前置节点.find(项 => 项.name === '优选域名-01' && !识别主力地区(项.path));
+  if (优选域名首节点) 主力成员.push(优选域名首节点.name);
+  for (const 地区 of ['HK', 'JP', 'KR', 'SG', 'US', 'DE', 'GB', 'NL', 'SE', 'FI']) {
+    const 命中节点 = 前置节点.find(项 => 识别主力地区(项.path) === 地区);
+    if (命中节点) 主力成员.push(命中节点.name);
+  }
+  for (const 住宅节点名 of ['🇩🇪 德国住宅-UR', '🇨🇦 加拿大住宅-UR']) {
+    if (前置名称.includes(住宅节点名)) 主力成员.push(住宅节点名);
+  }
   const 域名系统 = 自定义域名系统 || 'https://223.5.5.5/dns-query';
   const { 节点列表, 证书 } = await 获取家宽节点();
   const 国家计数 = {};
@@ -1298,9 +1316,14 @@ async function 生成家宽链式值(链接列表) {
   const 按国家 = 家宽项.slice().sort((甲, 乙) => 甲.国家 === 乙.国家 ? 0 : (甲.国家 < 乙.国家 ? -1 : 1)).map(项 => 项.名称);
   const 分组段 = [解码64('cHJveHktZ3JvdXBzOg==')];
   const 主选列表 = [];
+  if (主力成员.length) 主选列表.push('      - "' + 主力组名 + '"');
   if (前置名称.length) 主选列表.push('      - "' + 前置组名 + '"');
   主选列表.push('      - "' + 家宽自动 + '"', '      - "' + 家宽手选 + '"', '      - DIRECT');
-  // 主组排第一，客户端打开落在它上面；CF直连紧随其后（日常主力路径），家宽两组随后
+  // ⭐ 主力（有成员时）排在所有分组之前；其后 ⚪ 节点选择，客户端打开落在
+  // 它上面；CF直连紧随其后（日常主力路径），家宽两组随后
+  if (主力成员.length) {
+    分组段.push('  - name: "' + 主力组名 + '"', '    type: select', '    proxies:', 列出(主力成员));
+  }
   分组段.push('  - name: "' + 节点选择 + '"', '    type: select', '    proxies:', 主选列表.join('\n'));
   if (前置名称.length) {
     分组段.push('  - name: "' + 前置组名 + '"', '    type: url-test',
