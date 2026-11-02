@@ -790,12 +790,29 @@ function 构建值节点行(数量值596) {
 function 生成值值589(链接列表588, 本地值587 = {}) {
   const 节点列表586 = normalizeNodeNames(链接列表588.map(解析值链接).filter(数量值585 => 数量值585 && (数量值585.proto === 解码64('dmxlc3M=') || 数量值585.proto === 解码64('dHJvamFu'))));
   const 名称列表584 = 节点列表586.map(数量值583 => 数量值583.name);
+  // CFDirect 主力组（仅 clash）：rg 地区节点按 path 的 /rg-XX 段结构识别（不靠
+  // 名字匹配），按 HK,JP,KR,SG,US,DE,GB,NL,SE,FI 序取每区首个在场节点，其后
+  // 追加 UR 住宅节点（固定名）。只收本轮实际在场的；rg 与 UR 全缺席时不发
+  // ⭐ 主力组、🚀 节点选择保持逐字不变。
+  const 主力地区顺序 = ['HK', 'JP', 'KR', 'SG', 'US', 'DE', 'GB', 'NL', 'SE', 'FI'];
+  const 主力成员584 = [];
+  for (const 地区 of 主力地区顺序) {
+    const 命中节点 = 节点列表586.find(节点 => {
+      const 匹配 = /(?:^|\/)rg-([A-Z]{2})(?=\/|\?|$)/.exec(节点.path || '');
+      return 匹配 && 匹配[1] === 地区;
+    });
+    if (命中节点) 主力成员584.push(命中节点.name);
+  }
+  for (const 住宅节点名 of ['🇩🇪 德国住宅-UR', '🇨🇦 加拿大住宅-UR']) {
+    if (名称列表584.includes(住宅节点名)) 主力成员584.push(住宅节点名);
+  }
+  const 主力成员行 = 主力成员584.map(名称 => `      - ${处理本地值622(名称)}`).join('\n');
   const 域名系统值582 = 自定义域名系统 || 'https://223.5.5.5/dns-query';
   const 头部581 = ['mixed-port: 7890', 'allow-lan: true', 'mode: rule', 'log-level: info', 'ipv6: true', 'external-controller: 127.0.0.1:9090', 'unified-delay: true', 'tcp-concurrent: true', 'geodata-mode: true', 'geo-auto-update: true', 'geo-update-interval: 24', 'geox-url:', '  geoip: "https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat"', '  geosite: "https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"', '  mmdb: "https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb"', '  asn: "https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb"', 'sniffer:', '  enable: true', '  force-dns-mapping: true', '  parse-pure-ip: true', '  sniff:', '    HTTP:', '      ports: [80, 8080-8880]', '      override-destination: true', '    TLS:', '      ports: [443, 8443]', '    QUIC:', '      ports: [443, 8443]', 'dns:', '  enable: true', '  listen: 0.0.0.0:1053', '  ipv6: true', '  enhanced-mode: fake-ip', '  fake-ip-range: 198.18.0.1/16', '  fake-ip-filter:', '    - "*.lan"', '    - "+.local"', '    - "+.market.xiaomi.com"', '    - "+.msftconnecttest.com"', '    - "+.msftncsi.com"', '    - "localhost.ptlogin2.qq.com"', '    - "+.srv.nintendo.net"', '    - "+.stun.playstation.net"', '    - "+.xboxlive.com"', '  default-nameserver:', '    - 223.5.5.5', '    - 119.29.29.29', '  nameserver:', `    - ${域名系统值582}`, '    - https://119.29.29.29/dns-query', '  fallback:', '    - https://1.1.1.1/dns-query', '    - https://8.8.8.8/dns-query', '  fallback-filter:', '    geoip: true', '    geoip-code: CN', '    ipcidr:', '      - 240.0.0.0/4', ''];
   const 值值580 = ['proxies:'];
   for (const 数量值579 of 节点列表586) 值值580.push(构建值节点行(数量值579));
   const 节点仅 = 名称列表584.length ? 名称列表584.map(数量值578 => `      - ${处理本地值622(数量值578)}`).join('\n') : '      - DIRECT';
-  const 值值577 = [解码64('cHJveHktZ3JvdXBzOg=='), '  - name: "🚀 节点选择"', '    type: select', '    proxies:', '      - "♻️ 自动选择"', '      - "🎯 全球直连"', 节点仅, '  - name: "♻️ 自动选择"', '    type: url-test', '    url: https://www.gstatic.com/generate_204', '    interval: 300', '    tolerance: 50', '    lazy: true', '    proxies:', 节点仅, '  - name: "🌍 国外媒体"', '    type: select', '    proxies:', 处理值选择值(名称列表584), '  - name: "📺 哔哩哔哩"', '    type: select', '    proxies:', 处理值选择值(名称列表584, {
+  const 值值577 = [解码64('cHJveHktZ3JvdXBzOg=='), ...(主力成员584.length ? ['  - name: "⭐ 主力"', '    type: select', '    proxies:', 主力成员行] : []), '  - name: "🚀 节点选择"', '    type: select', '    proxies:', ...(主力成员584.length ? ['      - "⭐ 主力"'] : []), '      - "♻️ 自动选择"', '      - "🎯 全球直连"', 节点仅, '  - name: "♻️ 自动选择"', '    type: url-test', '    url: https://www.gstatic.com/generate_204', '    interval: 300', '    tolerance: 50', '    lazy: true', '    proxies:', 节点仅, '  - name: "🌍 国外媒体"', '    type: select', '    proxies:', 处理值选择值(名称列表584), '  - name: "📺 哔哩哔哩"', '    type: select', '    proxies:', 处理值选择值(名称列表584, {
     directFirst: true
   }), '  - name: "📹 油管视频"', '    type: select', '    proxies:', 处理值选择值(名称列表584, {
     extraGroups: ['🌍 国外媒体']
