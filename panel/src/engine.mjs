@@ -1206,10 +1206,10 @@ async function 获取家宽节点() {
 }
 
 async function 生成家宽链式值(链接列表) {
-  const 前置组名 = '\u26a1 CF前置';
-  const 家宽自动 = '\ud83c\udfe0 家宽自动';
-  const 家宽手选 = '\ud83c\udfe0 家宽节点';
-  const 节点选择 = '\ud83d\ude80 节点选择';
+  const 前置组名 = '\ud83d\udfe1 CF直连';
+  const 家宽自动 = '\ud83d\udfe2 家宽自动';
+  const 家宽手选 = '\ud83d\udd35 家宽节点';
+  const 节点选择 = '\u26aa 节点选择';
   const 全部前置 = 链接列表.map(解析值链接)
     .filter(项 => 项 && (项.proto === 解码64('dmxlc3M=') || 项.proto === 解码64('dHJvamFu')));
   // 落地隧道的握手特征很明显，前置用明文会被一眼认出来，有 TLS 节点就只用 TLS 的
@@ -1280,20 +1280,21 @@ async function 生成家宽链式值(链接列表) {
   const 按速度 = 家宽项.map(项 => 项.名称);
   const 按国家 = 家宽项.slice().sort((甲, 乙) => 甲.国家 === 乙.国家 ? 0 : (甲.国家 < 乙.国家 ? -1 : 1)).map(项 => 项.名称);
   const 分组段 = [解码64('cHJveHktZ3JvdXBzOg==')];
+  const 主选列表 = ['      - "' + 家宽自动 + '"', '      - "' + 家宽手选 + '"'];
+  if (前置名称.length) 主选列表.push('      - "' + 前置组名 + '"');
+  主选列表.push('      - DIRECT');
+  // 主组排第一，客户端打开落在它上面；子组随后
+  分组段.push('  - name: "' + 节点选择 + '"', '    type: select', '    proxies:', 主选列表.join('\n'));
+  // 全量几十个节点，测一轮就是几十次握手，间隔取 600 平衡新鲜与开销、用到才测
+  分组段.push('  - name: "' + 家宽自动 + '"', '    type: fallback',
+    '    url: https://www.gstatic.com/generate_204', '    interval: 600', '    lazy: true',
+    '    proxies:', 列出(按速度));
+  分组段.push('  - name: "' + 家宽手选 + '"', '    type: select', '    proxies:', 列出(按国家));
   if (前置名称.length) {
     分组段.push('  - name: "' + 前置组名 + '"', '    type: url-test',
       '    url: https://www.gstatic.com/generate_204', '    interval: 300', '    tolerance: 50',
       '    proxies:', 列出(前置名称));
   }
-  // 全量几十个节点，测一轮就是几十次握手，所以间隔拉长、用到才测
-  分组段.push('  - name: "' + 家宽自动 + '"', '    type: fallback',
-    '    url: https://www.gstatic.com/generate_204', '    interval: 1800', '    lazy: true',
-    '    proxies:', 列出(按速度));
-  分组段.push('  - name: "' + 家宽手选 + '"', '    type: select', '    proxies:', 列出(按国家));
-  const 主选列表 = ['      - "' + 家宽自动 + '"', '      - "' + 家宽手选 + '"'];
-  if (前置名称.length) 主选列表.push('      - "' + 前置组名 + '"');
-  主选列表.push('      - DIRECT');
-  分组段.push('  - name: "' + 节点选择 + '"', '    type: select', '    proxies:', 主选列表.join('\n'));
   const 规则段 = [
     'rules:',
     '  - GEOIP,LAN,DIRECT,no-resolve',
