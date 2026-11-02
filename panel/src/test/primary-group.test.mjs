@@ -1,8 +1,9 @@
-// CFDirect ⭐ 主力分组单测（仅 clash）：主力组由 rg 地区节点（按 path 的
-// /rg-XX 段识别、HK→FI 定序）+ UR 住宅节点组成，发在 proxy-groups 第一位，
-// 并成为 🚀 节点选择 的首位成员；部分在场只收在场的，全缺席不发组且输出
-// 与此前一致。singbox/base64 不受影响。集成口径与 country.test 同夹具
-//（本地 HTTP 托管内核 fixture、KV 直接种子配置、国家池/DNS 经注入缝假实现）。
+// CFDirect ⭐ 主力分组单测（仅 clash）：主力组由钉住入口优选域名-01（path
+// 无 /rg- 段）+ rg 地区节点（按 path 的 /rg-XX 段识别、HK→FI 定序）+ UR
+// 住宅节点组成，发在 proxy-groups 第一位，并成为 🚀 节点选择 的首位成员；
+// 部分在场只收在场的，全缺席不发组且输出与此前一致。singbox/base64 不受
+// 影响。集成口径与 country.test 同夹具（本地 HTTP 托管内核 fixture、KV 直接
+// 种子配置、国家池/DNS 经注入缝假实现）。
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -37,6 +38,7 @@ async function fixture(run) {
 const BASE = { ae: 'yes', yx: '104.16.1.1:443#手填节点', ev: 'yes', epi: 'yes', epd: 'no', egi: 'no', ena: 'no' };
 const RG = { epd: 'yes', countryNodes: 'yes', countryViaProxy: 'yes', countryRegions: 'HK,JP,KR,SG,US,DE,GB,NL,SE,FI', countryEntryDomain: 'saas.sin.fan', countryPerRegion: '1' };
 const UR = { urEnabled: 'yes', urUuid: UR_UUID, urDeHost: 'urde.brodydung.eu.org', urCaHost: 'urca.brodydung.eu.org' };
+const 优选成员 = ['优选域名-01'];
 const RG成员 = ['🇭🇰_香港-01', '🇯🇵_日本-01', '🇰🇷_韩国-01', '🇸🇬_新加坡-01', '🇺🇸_美国-01', '🇩🇪_德国-01', '🇬🇧_英国-01', '🇳🇱_荷兰-01', '🇸🇪_瑞典-01', '🇫🇮_芬兰-01'];
 const UR成员 = ['🇩🇪 德国住宅-UR', '🇨🇦 加拿大住宅-UR'];
 
@@ -63,7 +65,7 @@ function 注入缝() {
 }
 function 清除缝() { delete globalThis.__CFDIRECT_DNS_DEPS__; delete globalThis.__CFDIRECT_COUNTRY_DEPS__; }
 
-test('clash：rg 10 国 + UR 2 节点全在场——⭐ 主力 12 成员定序、居分组首位、为 🚀 节点选择首位成员', async () => fixture(async ({ seed, sub }) => {
+test('clash：优选域名-01 + rg 10 国 + UR 2 节点全在场——⭐ 主力 13 成员定序、居分组首位、为 🚀 节点选择首位成员', async () => fixture(async ({ seed, sub }) => {
   seed({ ...BASE, ...RG, ...UR });
   注入缝();
   try {
@@ -73,7 +75,7 @@ test('clash：rg 10 国 + UR 2 节点全在场——⭐ 主力 12 成员定序�
     const 组 = 解析分组(yaml);
     assert.equal(组[0].name, '⭐ 主力', '⭐ 主力应为 proxy-groups 第一组');
     assert.equal(组[0].type, 'select');
-    assert.deepEqual(组[0].members, [...RG成员, ...UR成员], '成员应为 10 rg 定序 + 2 UR');
+    assert.deepEqual(组[0].members, [...优选成员, ...RG成员, ...UR成员], '成员应为优选域名-01 + 10 rg 定序 + 2 UR');
     const 主选 = 组.find(g => g.name === '🚀 节点选择');
     assert.ok(主选, '🚀 节点选择应存在');
     assert.equal(主选.members[0], '⭐ 主力', '⭐ 主力应为 🚀 节点选择首位成员');
@@ -86,14 +88,14 @@ test('clash：rg 10 国 + UR 2 节点全在场——⭐ 主力 12 成员定序�
   } finally { 清除缝(); }
 }));
 
-test('clash：UR 关闭——⭐ 主力只含 10 个 rg 成员', async () => fixture(async ({ seed, sub }) => {
+test('clash：UR 关闭——⭐ 主力含优选域名-01 + 10 个 rg 成员', async () => fixture(async ({ seed, sub }) => {
   seed({ ...BASE, ...RG });
   注入缝();
   try {
     const yaml = await (await sub('clash')).text();
     const 组 = 解析分组(yaml);
     assert.equal(组[0].name, '⭐ 主力');
-    assert.deepEqual(组[0].members, RG成员);
+    assert.deepEqual(组[0].members, [...优选成员, ...RG成员]);
     assert.equal(组.find(g => g.name === '🚀 节点选择').members[0], '⭐ 主力');
   } finally { 清除缝(); }
 }));
