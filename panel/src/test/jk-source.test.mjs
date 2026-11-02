@@ -81,16 +81,16 @@ test('vg 分组色点系：新组名/主组第一/自动间隔 600/引用跟随�
     for (const 旧名 of ['⚡ CF前置', '🚀 节点选择', '🏠 家宽自动', '🏠 家宽节点']) {
       assert.ok(!body.includes(旧名), '旧组名不应残留：' + 旧名);
     }
-    // 发射顺序：节点选择 → 家宽自动 → 家宽节点 → CF直连
-    const 组序 = ['⚪ 节点选择', '🟢 家宽自动', '🔵 家宽节点', '🟡 CF直连']
+    // 发射顺序：节点选择 → CF直连 → 家宽自动 → 家宽节点
+    const 组序 = ['⚪ 节点选择', '🟡 CF直连', '🟢 家宽自动', '🔵 家宽节点']
       .map(组名 => body.indexOf('- name: "' + 组名 + '"'));
     assert.ok(组序.every((v, i) => v >= 0 && (i === 0 || v > 组序[i - 1])), '分组顺序应为主组第一，实际索引 ' + 组序.join(','));
-    // 主组成员顺序：家宽自动、家宽节点、CF直连、DIRECT
+    // 主组成员顺序：CF直连、家宽自动、家宽节点、DIRECT
     const 主组段 = body.slice(组序[0], 组序[1]);
-    const 成员序 = ['🟢 家宽自动', '🔵 家宽节点', '🟡 CF直连', 'DIRECT'].map(x => 主组段.indexOf(x));
+    const 成员序 = ['🟡 CF直连', '🟢 家宽自动', '🔵 家宽节点', 'DIRECT'].map(x => 主组段.indexOf(x));
     assert.ok(成员序.every((v, i) => v >= 0 && (i === 0 || v > 成员序[i - 1])), '主组成员顺序不对：' + 成员序.join(','));
-    // 家宽自动：fallback + interval 600 + lazy 不变
-    const 自动段 = body.slice(组序[1], 组序[2]);
+    // 家宽自动：fallback + interval 600 + lazy 不变（新序下它在组序[2]，家宽节点在组序[3]）
+    const 自动段 = body.slice(组序[2], 组序[3]);
     assert.ok(自动段.includes('type: fallback'), '家宽自动应为 fallback');
     assert.ok(自动段.includes('interval: 600'), '家宽自动间隔应为 600');
     assert.ok(自动段.includes('lazy: true'), '家宽自动 lazy 应保留');
