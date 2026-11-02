@@ -63,6 +63,47 @@ test('jkSource：自定义源与默认源合并去重，家宽订阅包含两边
   }
 });
 
+test('vg 分组色点系：新组名/主组第一/自动间隔 600/引用跟随改名', async () => {
+  const 原fetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(默认清单, { status: 200 });
+  try {
+    const engine = createSubscriptionEngine(
+      { yx: '104.16.1.1:443#测试', epi: 'yes', epd: 'no', egi: 'no', ena: 'no', ev: 'yes', jk: 'yes' },
+      uuid,
+    );
+    const response = await engine.subscribe(new Request('https://worker.example/sub?target=vg'));
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    // 新组名齐全，旧组名零残留
+    for (const 组名 of ['⚪ 节点选择', '🟢 家宽自动', '🔵 家宽节点', '🟡 CF直连']) {
+      assert.ok(body.includes('- name: "' + 组名 + '"'), '应有分组 ' + 组名);
+    }
+    for (const 旧名 of ['⚡ CF前置', '🚀 节点选择', '🏠 家宽自动', '🏠 家宽节点']) {
+      assert.ok(!body.includes(旧名), '旧组名不应残留：' + 旧名);
+    }
+    // 发射顺序：节点选择 → 家宽自动 → 家宽节点 → CF直连
+    const 组序 = ['⚪ 节点选择', '🟢 家宽自动', '🔵 家宽节点', '🟡 CF直连']
+      .map(组名 => body.indexOf('- name: "' + 组名 + '"'));
+    assert.ok(组序.every((v, i) => v >= 0 && (i === 0 || v > 组序[i - 1])), '分组顺序应为主组第一，实际索引 ' + 组序.join(','));
+    // 主组成员顺序：家宽自动、家宽节点、CF直连、DIRECT
+    const 主组段 = body.slice(组序[0], 组序[1]);
+    const 成员序 = ['🟢 家宽自动', '🔵 家宽节点', '🟡 CF直连', 'DIRECT'].map(x => 主组段.indexOf(x));
+    assert.ok(成员序.every((v, i) => v >= 0 && (i === 0 || v > 成员序[i - 1])), '主组成员顺序不对：' + 成员序.join(','));
+    // 家宽自动：fallback + interval 600 + lazy 不变
+    const 自动段 = body.slice(组序[1], 组序[2]);
+    assert.ok(自动段.includes('type: fallback'), '家宽自动应为 fallback');
+    assert.ok(自动段.includes('interval: 600'), '家宽自动间隔应为 600');
+    assert.ok(自动段.includes('lazy: true'), '家宽自动 lazy 应保留');
+    // 引用跟随改名：openvpn 节点 dialer-proxy 指向新前置组名、MATCH 指向新主组
+    assert.ok(body.includes('dialer-proxy: "🟡 CF直连"'), 'dialer-proxy 应指向 🟡 CF直连');
+    assert.ok(body.includes('- MATCH,⚪ 节点选择'), 'MATCH 应指向 ⚪ 节点选择');
+    // 节点名口径不变：家宽节点仍 🏠 前缀
+    assert.ok(body.includes('"🏠 JP-家宽-01"'), '家宽节点名应保持 🏠 前缀');
+  } finally {
+    globalThis.fetch = 原fetch;
+  }
+});
+
 test('jkSource：未设置时只用默认源，行为与原来一致', async () => {
   const 原fetch = globalThis.fetch;
   const 请求过的网址 = [];
